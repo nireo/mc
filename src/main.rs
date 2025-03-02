@@ -3,6 +3,7 @@ mod lexer;
 mod parser;
 
 use anyhow::Result;
+use codegen::{CodeEmitter, CodeGenerator};
 use std::env;
 
 fn main() -> Result<()> {
@@ -62,6 +63,9 @@ fn main() -> Result<()> {
 
     let program = parser.parse()?;
     println!("{:?}", program.fn_def);
+
+    let asm_ast = CodeGenerator::new().generate_code(program)?;
+    CodeEmitter::new().emit_code(asm_ast, input_file + ".out")?;
 
     Ok(())
 }

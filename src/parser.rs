@@ -19,8 +19,8 @@ pub enum Statement {
 
 #[derive(Debug)]
 pub struct FunctionDefinition {
-    identifier: String,
-    statement: Box<Statement>,
+    pub identifier: String,
+    pub statement: Box<Statement>,
 }
 
 #[derive(Debug)]

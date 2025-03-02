@@ -1,2 +1,1 @@
-int main(void) { return (;
-}
+int main(void) { return 20; }
