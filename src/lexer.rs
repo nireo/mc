@@ -13,6 +13,8 @@ pub enum Token {
     OpenBrace,
     CloseBrace,
     Semicolon,
+    Tilde,
+    Minus,
 }
 
 pub fn tokenize(mut input: &str) -> Result<Vec<Token>> {
@@ -78,6 +80,8 @@ fn create_regex_patterns() -> Vec<(Regex, Box<dyn Fn(&str) -> Token>)> {
         (Regex::new(r"^\)").unwrap(), Box::new(|_| Token::CloseParen)),
         (Regex::new(r"^\{").unwrap(), Box::new(|_| Token::OpenBrace)),
         (Regex::new(r"^\}").unwrap(), Box::new(|_| Token::CloseBrace)),
+        (Regex::new(r"^\-").unwrap(), Box::new(|_| Token::Minus)),
+        (Regex::new(r"^\~").unwrap(), Box::new(|_| Token::Tilde)),
         (Regex::new(r"^;").unwrap(), Box::new(|_| Token::Semicolon)),
     ]
 }

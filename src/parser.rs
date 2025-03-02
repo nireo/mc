@@ -5,6 +5,10 @@ use std::iter::Peekable;
 #[derive(Debug)]
 pub enum Expression {
     Integer(i64),
+    Unary {
+        operator: Token,
+        expr: Box<Expression>,
+    },
 }
 
 #[derive(Debug)]
@@ -96,8 +100,30 @@ where
     }
 
     fn parse_expression(&mut self) -> Result<Box<Expression>> {
-        let value = self.get_int()?;
-        Ok(Box::new(Expression::Integer(value)))
+        let next_token = match self.tokens.next() {
+            Some(tok) => tok,
+            _ => return Err(anyhow!("Expected token but got nothing when parsing expr")),
+        };
+
+        match next_token {
+            Token::Constant(val) => Ok(Box::new(Expression::Integer(val))),
+            Token::Tilde | Token::Minus => {
+                let op = next_token;
+                let inner_expr = self.parse_expression()?;
+
+                Ok(Box::new(Expression::Unary {
+                    operator: op,
+                    expr: inner_expr,
+                }))
+            }
+            Token::OpenParen => {
+                let inner = self.parse_expression()?;
+                self.expect(Token::CloseParen)?;
+
+                Ok(inner)
+            }
+            _ => return Err(anyhow!("Unsupported expression token {:?}", next_token)),
+        }
     }
 
     fn parse_function_def(&mut self) -> Result<FunctionDefinition> {
