@@ -10,20 +10,28 @@ type OperandKind int
 
 const (
 	OPERAND_IMM OperandKind = iota
-	OPERAND_REG
+	OPERAND_REG_AX
+	OPERAND_REG_R10
+	OPERAND_PSEUDO
+	OPERAND_STACK
 )
 
 type Operand struct {
-	kind OperandKind
-	imm  int64
+	kind  OperandKind
+	imm   int64
+	ident string
 }
 
 func (o Operand) String() string {
 	switch o.kind {
 	case OPERAND_IMM:
 		return fmt.Sprintf("$%d", o.imm)
-	case OPERAND_REG:
+	case OPERAND_REG_AX:
 		return "%eax"
+	case OPERAND_REG_R10:
+		return "%r10d"
+	case OPERAND_STACK:
+		return fmt.Sprintf("%d(%%rbp)", o.imm)
 	}
 	return ""
 }
@@ -33,14 +41,15 @@ type InstructionKind int
 const (
 	INS_RET InstructionKind = iota
 	INS_MOV
+	INS_UNARY
+	INS_ALLOC_STACK
 )
 
 type Instruction struct {
-	kind InstructionKind
-	mov  struct {
-		a *Operand
-		b *Operand
-	}
+	kind    InstructionKind
+	mov_a   *Operand
+	mov_b   *Operand
+	integer int64
 }
 
 type genFunction struct {
@@ -55,9 +64,11 @@ type genProgram struct {
 func (i Instruction) String() string {
 	switch i.kind {
 	case INS_RET:
-		return "\tret"
+		return "\tmovq %rbp, %rsp\n\tpopq %rbp\n\tret"
 	case INS_MOV:
-		return fmt.Sprintf("\tmovl %s %s", i.mov.a.String(), i.mov.b.String())
+		return fmt.Sprintf("\tmovl %s %s", i.mov_a.String(), i.mov_b.String())
+	case INS_ALLOC_STACK:
+		return fmt.Sprintf("subq $%d, %%rsp", i.integer)
 	}
 
 	return ""
@@ -96,15 +107,10 @@ func (cg *CodeGenerator) generateStatement(stmt *Statement, instructions *[]Inst
 		}
 
 		movInstr := Instruction{
-			kind: INS_MOV,
-			mov: struct {
-				a *Operand
-				b *Operand
-			}{
-				a: operand,
-				b: &Operand{
-					kind: OPERAND_REG,
-				},
+			kind:  INS_MOV,
+			mov_a: operand,
+			mov_b: &Operand{
+				kind: OPERAND_REG_AX,
 			},
 		}
 
