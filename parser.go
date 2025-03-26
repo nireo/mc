@@ -10,7 +10,7 @@ const (
 	EXP_INTEGER
 )
 
-type UnayExpr struct {
+type UnaryExpr struct {
 	operator Token
 	expr     *Expression
 }
@@ -19,7 +19,7 @@ type UnayExpr struct {
 type Expression struct {
 	kind    ExpressionKind
 	integer int64
-	unary   *UnayExpr
+	unary   *UnaryExpr
 }
 
 // StatementKind represents different types of statements
