@@ -98,6 +98,21 @@ func (p *Parser) parseExpr() *Expression {
 			kind:    EXP_INTEGER,
 			integer: tok.Value.(int64),
 		}
+	case TILDE, MINUS:
+		op := tok.Kind
+		innerExpr := p.parseExpr()
+		return &Expression{
+			kind: EXP_UNARY,
+			unary: &UnaryExpr{
+				operator: op,
+				expr:     innerExpr,
+			},
+		}
+	case OPEN_PAREN:
+		innerExpr := p.parseExpr()
+		p.expect(CLOSE_PAREN)
+
+		return innerExpr
 	}
 
 	panic("no implementation for expression")

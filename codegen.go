@@ -3,7 +3,6 @@ package mc
 import (
 	"fmt"
 	"io"
-	"os"
 )
 
 type Operation int
@@ -16,9 +15,9 @@ const (
 func (o Operation) String() string {
 	switch o {
 	case A_O_NOT:
-		return "\tnotl"
+		return "notl"
 	case A_O_NEG:
-		return "\tnegl"
+		return "negl"
 	}
 
 	return ""
@@ -90,7 +89,7 @@ func (i Instruction) String() string {
 	case INS_RET:
 		return "\tmovq %rbp, %rsp\n\tpopq %rbp\n\tret"
 	case INS_MOV:
-		return fmt.Sprintf("\tmovl %s %s", i.mov_a.String(), i.mov_b.String())
+		return fmt.Sprintf("\tmovl %s, %s", i.mov_a.String(), i.mov_b.String())
 	case INS_ALLOC_STACK:
 		return fmt.Sprintf("\tsubq $%d, %%rsp", i.integer)
 	case INS_UNARY:
@@ -146,6 +145,97 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 	}
 }
 
+func replacePseudoRegisters(insts *[]Instruction) int {
+	pseudoToStack := make(map[string]int64)
+	currentOffset := int64(-4)
+
+	for i := range *insts {
+		inst := &(*insts)[i]
+
+		if inst.kind == INS_MOV && inst.mov_a != nil && inst.mov_a.kind == OPERAND_PSEUDO {
+			if _, exists := pseudoToStack[inst.mov_a.ident]; !exists {
+				pseudoToStack[inst.mov_a.ident] = currentOffset
+				currentOffset -= 4
+			}
+		}
+
+		if inst.kind == INS_MOV && inst.mov_b != nil && inst.mov_b.kind == OPERAND_PSEUDO {
+			if _, exists := pseudoToStack[inst.mov_b.ident]; !exists {
+				pseudoToStack[inst.mov_b.ident] = currentOffset
+				currentOffset -= 4
+			}
+		}
+
+		if inst.kind == INS_UNARY && inst.unary != nil && inst.unary.operand != nil &&
+			inst.unary.operand.kind == OPERAND_PSEUDO {
+			if _, exists := pseudoToStack[inst.unary.operand.ident]; !exists {
+				pseudoToStack[inst.unary.operand.ident] = currentOffset
+				currentOffset -= 4
+			}
+		}
+	}
+
+	for i := range *insts {
+		inst := &(*insts)[i]
+
+		if inst.kind == INS_MOV && inst.mov_a != nil && inst.mov_a.kind == OPERAND_PSEUDO {
+			offset, exists := pseudoToStack[inst.mov_a.ident]
+			if exists {
+				inst.mov_a.kind = OPERAND_STACK
+				inst.mov_a.imm = offset
+			}
+		}
+
+		if inst.kind == INS_MOV && inst.mov_b != nil && inst.mov_b.kind == OPERAND_PSEUDO {
+			offset, exists := pseudoToStack[inst.mov_b.ident]
+			if exists {
+				inst.mov_b.kind = OPERAND_STACK
+				inst.mov_b.imm = offset
+			}
+		}
+
+		if inst.kind == INS_UNARY && inst.unary != nil && inst.unary.operand != nil &&
+			inst.unary.operand.kind == OPERAND_PSEUDO {
+			offset, exists := pseudoToStack[inst.unary.operand.ident]
+			if exists {
+				inst.unary.operand.kind = OPERAND_STACK
+				inst.unary.operand.imm = offset
+			}
+		}
+	}
+
+	return len(pseudoToStack) * 4
+}
+
+func fixInvalidMoves(insts *[]Instruction) {
+	var fixedInstructions []Instruction
+
+	for _, inst := range *insts {
+		if inst.kind == INS_MOV &&
+			inst.mov_a != nil && inst.mov_a.kind == OPERAND_STACK &&
+			inst.mov_b != nil && inst.mov_b.kind == OPERAND_STACK {
+
+			moveToR10 := Instruction{
+				kind:  INS_MOV,
+				mov_a: inst.mov_a,
+				mov_b: &Operand{kind: OPERAND_REG_R10},
+			}
+
+			moveFromR10 := Instruction{
+				kind:  INS_MOV,
+				mov_a: &Operand{kind: OPERAND_REG_R10},
+				mov_b: inst.mov_b,
+			}
+
+			fixedInstructions = append(fixedInstructions, moveToR10, moveFromR10)
+		} else {
+			fixedInstructions = append(fixedInstructions, inst)
+		}
+	}
+
+	*insts = fixedInstructions
+}
+
 func GenerateIr(prog *IrProgram) *GenProgram {
 	genFn := &GenFunction{
 		name:         prog.function.identifier,
@@ -156,25 +246,28 @@ func GenerateIr(prog *IrProgram) *GenProgram {
 		convertIrInstruction(inst, &genFn.instructions)
 	}
 
+	stackSize := replacePseudoRegisters(&genFn.instructions)
+	fixInvalidMoves(&genFn.instructions)
+
+	if stackSize > 0 {
+		allocInst := Instruction{
+			kind:    INS_ALLOC_STACK,
+			integer: int64(stackSize),
+		}
+
+		genFn.instructions = append([]Instruction{allocInst}, genFn.instructions...)
+	}
+
 	return &GenProgram{
 		fn: genFn,
 	}
 }
 
-type CodeEmitter struct{}
+type CodeEmitter struct {
+}
 
 func NewCodeEmitter() *CodeEmitter {
 	return &CodeEmitter{}
-}
-
-func (ce *CodeEmitter) EmitCode(program *GenProgram, outputPath string) error {
-	file, err := os.Create(outputPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	return ce.EmitProgram(program, file)
 }
 
 func (ce *CodeEmitter) EmitProgram(program *GenProgram, writer io.Writer) error {
