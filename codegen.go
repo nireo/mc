@@ -123,8 +123,11 @@ func (i Instruction) String() string {
 	case INS_UNARY:
 		return fmt.Sprintf("\t%s %s", i.unary.op, i.unary.operand)
 	case INS_BINARY:
-		fmt.Println("got b binary:", i.binary.b.kind)
 		return fmt.Sprintf("\t%s %s, %s", i.binary.op, i.binary.a, i.binary.b)
+	case INS_IDIV:
+		return fmt.Sprintf("\tidivl %s", i.idiv)
+	case INS_CDQ:
+		return "\tcdq"
 	}
 
 	return ""
@@ -276,6 +279,13 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 				currentOffset -= 4
 			}
 		}
+
+		if inst.kind == INS_IDIV && inst.idiv.kind == OPERAND_PSEUDO {
+			if _, exists := pseudoToStack[inst.idiv.ident]; !exists {
+				pseudoToStack[inst.idiv.ident] = currentOffset
+				currentOffset -= 4
+			}
+		}
 	}
 
 	for i := range *insts {
@@ -318,6 +328,14 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 			if exists {
 				inst.binary.b.kind = OPERAND_STACK
 				inst.binary.b.imm = offset
+			}
+		}
+
+		if inst.kind == INS_IDIV && inst.idiv.kind == OPERAND_PSEUDO {
+			offset, exists := pseudoToStack[inst.idiv.ident]
+			if exists {
+				inst.idiv.kind = OPERAND_STACK
+				inst.idiv.imm = offset
 			}
 		}
 	}
