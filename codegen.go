@@ -123,6 +123,7 @@ func (i Instruction) String() string {
 	case INS_UNARY:
 		return fmt.Sprintf("\t%s %s", i.unary.op, i.unary.operand)
 	case INS_BINARY:
+		fmt.Println("got b binary:", i.binary.b.kind)
 		return fmt.Sprintf("\t%s %s, %s", i.binary.op, i.binary.a, i.binary.b)
 	}
 
@@ -241,24 +242,37 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 	for i := range *insts {
 		inst := &(*insts)[i]
 
-		if inst.kind == INS_MOV && inst.mov_a != nil && inst.mov_a.kind == OPERAND_PSEUDO {
+		if inst.kind == INS_MOV && inst.mov_a.kind == OPERAND_PSEUDO {
 			if _, exists := pseudoToStack[inst.mov_a.ident]; !exists {
 				pseudoToStack[inst.mov_a.ident] = currentOffset
 				currentOffset -= 4
 			}
 		}
 
-		if inst.kind == INS_MOV && inst.mov_b != nil && inst.mov_b.kind == OPERAND_PSEUDO {
+		if inst.kind == INS_MOV && inst.mov_b.kind == OPERAND_PSEUDO {
 			if _, exists := pseudoToStack[inst.mov_b.ident]; !exists {
 				pseudoToStack[inst.mov_b.ident] = currentOffset
 				currentOffset -= 4
 			}
 		}
 
-		if inst.kind == INS_UNARY && inst.unary != nil && inst.unary.operand != nil &&
-			inst.unary.operand.kind == OPERAND_PSEUDO {
+		if inst.kind == INS_UNARY && inst.unary.operand.kind == OPERAND_PSEUDO {
 			if _, exists := pseudoToStack[inst.unary.operand.ident]; !exists {
 				pseudoToStack[inst.unary.operand.ident] = currentOffset
+				currentOffset -= 4
+			}
+		}
+
+		if inst.kind == INS_BINARY && inst.binary.a.kind == OPERAND_PSEUDO {
+			if _, exists := pseudoToStack[inst.binary.a.ident]; !exists {
+				pseudoToStack[inst.binary.a.ident] = currentOffset
+				currentOffset -= 4
+			}
+		}
+
+		if inst.kind == INS_BINARY && inst.binary.b.kind == OPERAND_PSEUDO {
+			if _, exists := pseudoToStack[inst.binary.b.ident]; !exists {
+				pseudoToStack[inst.binary.b.ident] = currentOffset
 				currentOffset -= 4
 			}
 		}
@@ -267,7 +281,7 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 	for i := range *insts {
 		inst := &(*insts)[i]
 
-		if inst.kind == INS_MOV && inst.mov_a != nil && inst.mov_a.kind == OPERAND_PSEUDO {
+		if inst.kind == INS_MOV && inst.mov_a.kind == OPERAND_PSEUDO {
 			offset, exists := pseudoToStack[inst.mov_a.ident]
 			if exists {
 				inst.mov_a.kind = OPERAND_STACK
@@ -275,7 +289,7 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 			}
 		}
 
-		if inst.kind == INS_MOV && inst.mov_b != nil && inst.mov_b.kind == OPERAND_PSEUDO {
+		if inst.kind == INS_MOV && inst.mov_b.kind == OPERAND_PSEUDO {
 			offset, exists := pseudoToStack[inst.mov_b.ident]
 			if exists {
 				inst.mov_b.kind = OPERAND_STACK
@@ -283,12 +297,27 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 			}
 		}
 
-		if inst.kind == INS_UNARY && inst.unary != nil && inst.unary.operand != nil &&
-			inst.unary.operand.kind == OPERAND_PSEUDO {
+		if inst.kind == INS_UNARY && inst.unary.operand.kind == OPERAND_PSEUDO {
 			offset, exists := pseudoToStack[inst.unary.operand.ident]
 			if exists {
 				inst.unary.operand.kind = OPERAND_STACK
 				inst.unary.operand.imm = offset
+			}
+		}
+
+		if inst.kind == INS_BINARY && inst.binary.a.kind == OPERAND_PSEUDO {
+			offset, exists := pseudoToStack[inst.binary.a.ident]
+			if exists {
+				inst.binary.a.kind = OPERAND_STACK
+				inst.binary.a.imm = offset
+			}
+		}
+
+		if inst.kind == INS_BINARY && inst.binary.b.kind == OPERAND_PSEUDO {
+			offset, exists := pseudoToStack[inst.binary.b.ident]
+			if exists {
+				inst.binary.b.kind = OPERAND_STACK
+				inst.binary.b.imm = offset
 			}
 		}
 	}
@@ -296,14 +325,15 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 	return len(pseudoToStack) * 4
 }
 
-func fixInvalidMoves(insts *[]Instruction) {
+func fixInstructions(insts *[]Instruction) {
 	var fixedInstructions []Instruction
 
 	for _, inst := range *insts {
-		if inst.kind == INS_MOV &&
-			inst.mov_a != nil && inst.mov_a.kind == OPERAND_STACK &&
-			inst.mov_b != nil && inst.mov_b.kind == OPERAND_STACK {
-
+		if inst.kind == INS_MOV && inst.mov_a.kind == OPERAND_STACK && inst.mov_b.kind == OPERAND_STACK {
+			// movl -4(%rbp), -8(%rbp)
+			// ->
+			// movl -4(%rbp), %r10d
+			// movl %r10d, -8(%rbp)
 			moveToR10 := Instruction{
 				kind:  INS_MOV,
 				mov_a: inst.mov_a,
@@ -317,6 +347,78 @@ func fixInvalidMoves(insts *[]Instruction) {
 			}
 
 			fixedInstructions = append(fixedInstructions, moveToR10, moveFromR10)
+		} else if inst.kind == INS_IDIV && inst.idiv.kind == OPERAND_IMM {
+			// idivl $3
+			// ->
+			// movl $3, %r10d
+			// idivl %r10d
+
+			movToR10 := Instruction{
+				kind:  INS_MOV,
+				mov_a: inst.idiv,
+				mov_b: &Operand{kind: OPERAND_REG_R10},
+			}
+
+			idivl := Instruction{
+				kind: INS_IDIV,
+				idiv: &Operand{kind: OPERAND_REG_R10},
+			}
+			fixedInstructions = append(fixedInstructions, movToR10, idivl)
+		} else if inst.kind == INS_BINARY &&
+			(inst.binary.op == A_O_ADD || inst.binary.op == A_O_SUB) &&
+			inst.binary.a.kind == OPERAND_STACK &&
+			inst.binary.b.kind == OPERAND_STACK {
+
+			// addl -4(%rbp), -8(%rbp)
+			// ->
+			// movl -4(%rbp), %r10d
+			// addl %r10d, -8(%rbp)
+
+			moveToR10 := Instruction{
+				kind:  INS_MOV,
+				mov_a: inst.binary.a,
+				mov_b: &Operand{kind: OPERAND_REG_R10},
+			}
+
+			addl := Instruction{
+				kind: INS_BINARY,
+				binary: &BinaryInstruction{
+					op: inst.binary.op,
+					a:  &Operand{kind: OPERAND_REG_R10},
+					b:  inst.binary.b,
+				},
+			}
+			fixedInstructions = append(fixedInstructions, moveToR10, addl)
+		} else if inst.kind == INS_BINARY &&
+			inst.binary.op == A_O_MUL &&
+			inst.binary.b.kind == OPERAND_STACK {
+
+			// imull $3, -4(%rbp)
+			// ->
+			// movl -4(%rbp), %r11d
+			// imull $3, %r11d
+			// movl %r11d, -4(%rbp)
+			moveToR11 := Instruction{
+				kind:  INS_MOV,
+				mov_a: inst.binary.b,
+				mov_b: &Operand{kind: OPERAND_REG_R11},
+			}
+
+			imull := Instruction{
+				kind: INS_BINARY,
+				binary: &BinaryInstruction{
+					op: A_O_MUL,
+					a:  inst.binary.a,
+					b:  &Operand{kind: OPERAND_REG_R11},
+				},
+			}
+
+			movToStack := Instruction{
+				kind:  INS_MOV,
+				mov_a: &Operand{kind: OPERAND_REG_R11},
+				mov_b: inst.binary.b,
+			}
+			fixedInstructions = append(fixedInstructions, moveToR11, imull, movToStack)
 		} else {
 			fixedInstructions = append(fixedInstructions, inst)
 		}
@@ -336,7 +438,7 @@ func GenerateIr(prog *IrProgram) *GenProgram {
 	}
 
 	stackSize := replacePseudoRegisters(&genFn.instructions)
-	fixInvalidMoves(&genFn.instructions)
+	fixInstructions(&genFn.instructions)
 
 	if stackSize > 0 {
 		allocInst := Instruction{
