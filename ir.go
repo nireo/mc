@@ -2,14 +2,14 @@ package mc
 
 import "fmt"
 
-type IrUnaryOperator int
+type IrOperator int
 
 const (
-	IR_UNARY_COMPLEMENT IrUnaryOperator = iota
+	IR_UNARY_COMPLEMENT IrOperator = iota
 	IR_UNARY_NEGATE
 )
 
-func (op IrUnaryOperator) String() string {
+func (op IrOperator) String() string {
 	switch op {
 	case IR_UNARY_COMPLEMENT:
 		return "~"
@@ -78,7 +78,7 @@ type IrReturnInstruction struct {
 }
 
 type IrUnaryInstruction struct {
-	operator IrUnaryOperator
+	operator IrOperator
 	src      *IrVal
 	dst      *IrVal
 }
@@ -98,7 +98,7 @@ func NewIrReturnInstruction(val *IrVal) *IrInstruction {
 	}
 }
 
-func NewIrUnaryInstruction(operator IrUnaryOperator, src, dst *IrVal) *IrInstruction {
+func NewIrUnaryInstruction(operator IrOperator, src, dst *IrVal) *IrInstruction {
 	if !dst.IsVar() {
 		panic("destination of unary operation must be a variable")
 	}
@@ -193,7 +193,7 @@ func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrIn
 
 		resultVar := g.newTempVar()
 
-		var irOp IrUnaryOperator
+		var irOp IrOperator
 		switch expr.unary.operator {
 		case MINUS:
 			irOp = IR_UNARY_NEGATE

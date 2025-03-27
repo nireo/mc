@@ -6,6 +6,24 @@ import (
 	"os"
 )
 
+type Operation int
+
+const (
+	A_O_NOT Operation = iota
+	A_O_NEG
+)
+
+func (o Operation) String() string {
+	switch o {
+	case A_O_NOT:
+		return "\tnotl"
+	case A_O_NEG:
+		return "\tnegl"
+	}
+
+	return ""
+}
+
 type OperandKind int
 
 const (
@@ -45,20 +63,26 @@ const (
 	INS_ALLOC_STACK
 )
 
+type UnaryInstruction struct {
+	op      Operation
+	operand *Operand
+}
+
 type Instruction struct {
 	kind    InstructionKind
 	mov_a   *Operand
 	mov_b   *Operand
 	integer int64
+	unary   *UnaryInstruction
 }
 
-type genFunction struct {
+type GenFunction struct {
 	name         string
 	instructions []Instruction
 }
 
-type genProgram struct {
-	fn *genFunction
+type GenProgram struct {
+	fn *GenFunction
 }
 
 func (i Instruction) String() string {
@@ -68,77 +92,72 @@ func (i Instruction) String() string {
 	case INS_MOV:
 		return fmt.Sprintf("\tmovl %s %s", i.mov_a.String(), i.mov_b.String())
 	case INS_ALLOC_STACK:
-		return fmt.Sprintf("subq $%d, %%rsp", i.integer)
+		return fmt.Sprintf("\tsubq $%d, %%rsp", i.integer)
+	case INS_UNARY:
+		return fmt.Sprintf("\t%s %s", i.unary.op, i.unary.operand)
 	}
 
 	return ""
 }
 
-type CodeGenerator struct{}
-
-func NewCodeGenerator() *CodeGenerator {
-	return &CodeGenerator{}
-}
-
-func (cg *CodeGenerator) GenerateCode(program *Program) (*genProgram, error) {
-	fnDef := program.mainFunction
-	funcName := fnDef.identifier
-	instructions := []Instruction{}
-
-	err := cg.generateStatement(fnDef.statement, &instructions)
-	if err != nil {
-		return nil, err
+func convertIrValue(val *IrVal) *Operand {
+	switch val.kind {
+	case IR_VAL_CONSTANT:
+		return &Operand{kind: OPERAND_IMM, imm: val.constant}
+	case IR_VAL_VAR:
+		return &Operand{kind: OPERAND_PSEUDO, ident: val.identifier}
 	}
 
-	return &genProgram{
-		fn: &genFunction{
-			name:         funcName,
-			instructions: instructions,
-		},
-	}, nil
+	panic("unrecognized ir value")
 }
 
-func (cg *CodeGenerator) generateStatement(stmt *Statement, instructions *[]Instruction) error {
-	switch stmt.kind {
-	case STMT_RETURN:
-		operand, err := cg.generateExpr(stmt.ret.expr)
-		if err != nil {
-			return err
-		}
+func convertIrOperator(op IrOperator) Operation {
+	switch op {
+	case IR_UNARY_COMPLEMENT:
+		return A_O_NOT
+	case IR_UNARY_NEGATE:
+		return A_O_NEG
+	}
 
-		movInstr := Instruction{
+	panic("unrecognized ir operator")
+}
+
+func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
+	switch ins.kind {
+	case IR_INSTRUCTION_RETURN:
+		*instructions = append(*instructions, Instruction{
 			kind:  INS_MOV,
-			mov_a: operand,
-			mov_b: &Operand{
-				kind: OPERAND_REG_AX,
+			mov_a: convertIrValue(ins.ret.val),
+			mov_b: &Operand{kind: OPERAND_REG_AX},
+		}, Instruction{kind: INS_RET})
+		return
+	case IR_INSTRUCTION_UNARY:
+		*instructions = append(*instructions, Instruction{
+			kind:  INS_MOV,
+			mov_a: convertIrValue(ins.unary.src),
+			mov_b: convertIrValue(ins.unary.dst),
+		}, Instruction{
+			kind: INS_UNARY,
+			unary: &UnaryInstruction{
+				op:      convertIrOperator(ins.unary.operator),
+				operand: convertIrValue(ins.unary.dst),
 			},
-		}
-
-		retInstr := Instruction{
-			kind: INS_RET,
-		}
-
-		*instructions = append(*instructions, movInstr, retInstr)
-	case STMT_IF:
-		return fmt.Errorf("if statement not implemented")
-	default:
-		return fmt.Errorf("unsupported statement kind: %d", stmt.kind)
+		})
 	}
-
-	return nil
 }
 
-func (cg *CodeGenerator) generateExpr(expr *Expression) (*Operand, error) {
-	switch expr.kind {
-	case EXP_INTEGER:
-		return &Operand{
-			kind: OPERAND_IMM,
-			imm:  expr.integer,
-		}, nil
-	case EXP_UNARY:
-		return nil, fmt.Errorf("unary expression not implemented")
-	default:
-		return nil, fmt.Errorf("unsupported expression kind: %d", expr.kind)
+func GenerateIr(prog *IrProgram) *GenProgram {
+	genFn := &GenFunction{
+		name:         prog.function.identifier,
+		instructions: make([]Instruction, 0),
+	}
+
+	for _, inst := range prog.function.body {
+		convertIrInstruction(inst, &genFn.instructions)
+	}
+
+	return &GenProgram{
+		fn: genFn,
 	}
 }
 
@@ -148,7 +167,7 @@ func NewCodeEmitter() *CodeEmitter {
 	return &CodeEmitter{}
 }
 
-func (ce *CodeEmitter) EmitCode(program *genProgram, outputPath string) error {
+func (ce *CodeEmitter) EmitCode(program *GenProgram, outputPath string) error {
 	file, err := os.Create(outputPath)
 	if err != nil {
 		return err
@@ -158,7 +177,7 @@ func (ce *CodeEmitter) EmitCode(program *genProgram, outputPath string) error {
 	return ce.EmitProgram(program, file)
 }
 
-func (ce *CodeEmitter) EmitProgram(program *genProgram, writer io.Writer) error {
+func (ce *CodeEmitter) EmitProgram(program *GenProgram, writer io.Writer) error {
 	if err := ce.EmitFunction(program.fn, writer); err != nil {
 		return err
 	}
@@ -170,7 +189,7 @@ func (ce *CodeEmitter) EmitProgram(program *genProgram, writer io.Writer) error 
 	return nil
 }
 
-func (ce *CodeEmitter) EmitFunction(function *genFunction, writer io.Writer) error {
+func (ce *CodeEmitter) EmitFunction(function *GenFunction, writer io.Writer) error {
 	if _, err := fmt.Fprintf(writer, "\t.globl %s\n", function.name); err != nil {
 		return err
 	}
@@ -191,14 +210,6 @@ func (ce *CodeEmitter) EmitFunction(function *genFunction, writer io.Writer) err
 		if _, err := fmt.Fprintln(writer, instruction.String()); err != nil {
 			return err
 		}
-	}
-
-	if _, err := fmt.Fprintln(writer, "\tmovq %rbp, %rsp"); err != nil {
-		return err
-	}
-
-	if _, err := fmt.Fprintln(writer, "\tpopq %rbp"); err != nil {
-		return err
 	}
 
 	return nil
