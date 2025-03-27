@@ -1,6 +1,8 @@
 package mc
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // ExpressionKind represents different types of expressions
 type ExpressionKind int
@@ -8,6 +10,7 @@ type ExpressionKind int
 const (
 	EXP_UNARY ExpressionKind = iota
 	EXP_INTEGER
+	EXP_BINARY
 )
 
 type UnaryExpr struct {
@@ -15,11 +18,26 @@ type UnaryExpr struct {
 	expr     *Expression
 }
 
+type BinaryExpr struct {
+	operator Token
+	lhs      *Expression
+	rhs      *Expression
+}
+
 // Expression represents a C expression
 type Expression struct {
 	kind    ExpressionKind
 	integer int64
 	unary   *UnaryExpr
+	binary  *BinaryExpr
+}
+
+var precedences = map[Token]int{
+	TOK_ASTERISK: 50,
+	TOK_SLASH:    50,
+	TOK_PERCENT:  50,
+	TOK_PLUS:     45,
+	MINUS:        45,
 }
 
 // StatementKind represents different types of statements
@@ -77,7 +95,7 @@ func (p *Parser) expect(expectedToken Token) {
 
 func (p *Parser) parseStatement() *Statement {
 	p.expect(RETURN_KEYWORD)
-	expr := p.parseExpr()
+	expr := p.parseExpr(0)
 	p.expect(SEMICOLON)
 
 	return &Statement{
@@ -88,19 +106,26 @@ func (p *Parser) parseStatement() *Statement {
 	}
 }
 
-func (p *Parser) parseExpr() *Expression {
+func (p *Parser) peek() TokenValue {
+	if p.idx >= len(p.tokens)-1 {
+		panic("cannot peek out of range")
+	}
+	return p.tokens[p.idx+1]
+}
+
+func (p *Parser) parseFactor() *Expression {
 	tok := p.tokens[p.idx]
 	p.idx += 1
 
 	switch tok.Kind {
-	case CONSTANT:
+	case TOK_CONSTANT:
 		return &Expression{
 			kind:    EXP_INTEGER,
 			integer: tok.Value.(int64),
 		}
 	case TILDE, MINUS:
 		op := tok.Kind
-		innerExpr := p.parseExpr()
+		innerExpr := p.parseFactor()
 		return &Expression{
 			kind: EXP_UNARY,
 			unary: &UnaryExpr{
@@ -109,13 +134,44 @@ func (p *Parser) parseExpr() *Expression {
 			},
 		}
 	case OPEN_PAREN:
-		innerExpr := p.parseExpr()
+		innerExpr := p.parseExpr(0)
 		p.expect(CLOSE_PAREN)
 
 		return innerExpr
 	}
 
 	panic("no implementation for expression")
+
+}
+
+func (p *Parser) parseExpr(minPrec int) *Expression {
+	left := p.parseFactor()
+
+	for {
+		if p.idx >= len(p.tokens)-1 {
+			break
+		}
+
+		next := p.tokens[p.idx].Kind
+		pred, ok := precedences[next]
+		if !ok || pred < minPrec {
+			break
+		}
+
+		p.idx++
+
+		right := p.parseExpr(pred + 1)
+		left = &Expression{
+			kind: EXP_BINARY,
+			binary: &BinaryExpr{
+				operator: next,
+				lhs:      left,
+				rhs:      right,
+			},
+		}
+	}
+
+	return left
 }
 
 func (p *Parser) parseFunctionDef() *FunctionDef {

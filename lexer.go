@@ -17,8 +17,8 @@ type TokenValue struct {
 }
 
 const (
-	IDENTIFIER Token = iota
-	CONSTANT
+	TOK_IDENT Token = iota
+	TOK_CONSTANT
 	INT_KEYWORD
 	VOID_KEYWORD
 	RETURN_KEYWORD
@@ -30,6 +30,10 @@ const (
 	TILDE
 	MINUS
 	DECREMENT
+	TOK_PLUS
+	TOK_ASTERISK
+	TOK_SLASH
+	TOK_PERCENT
 )
 
 // Pattern represents a regex pattern and its token constructor
@@ -56,13 +60,13 @@ func createRegexPatterns() []Pattern {
 			regex: regexp.MustCompile(`^[0-9]+\b`),
 			tokenFunc: func(s string) TokenValue {
 				num, _ := strconv.ParseInt(s, 10, 64)
-				return TokenValue{CONSTANT, num}
+				return TokenValue{TOK_CONSTANT, num}
 			},
 		},
 		{
 			regex: regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*\b`),
 			tokenFunc: func(s string) TokenValue {
-				return TokenValue{IDENTIFIER, s}
+				return TokenValue{TOK_IDENT, s}
 			},
 		},
 		{
@@ -88,6 +92,22 @@ func createRegexPatterns() []Pattern {
 		{
 			regex:     regexp.MustCompile(`^\-`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{MINUS, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^\%`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_PERCENT, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^\+`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_PLUS, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^\/`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_SLASH, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^\*`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_ASTERISK, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\~`),

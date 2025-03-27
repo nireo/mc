@@ -7,6 +7,11 @@ type IrOperator int
 const (
 	IR_UNARY_COMPLEMENT IrOperator = iota
 	IR_UNARY_NEGATE
+	IR_BIN_ADD
+	IR_BIN_SUB
+	IR_BIN_MUL
+	IR_BIN_DIV
+	IR_BIN_REMAINDER
 )
 
 func (op IrOperator) String() string {
@@ -71,6 +76,7 @@ type IrInstructionKind int
 const (
 	IR_INSTRUCTION_RETURN IrInstructionKind = iota
 	IR_INSTRUCTION_UNARY
+	IR_INSTRUCTION_BINARY
 )
 
 type IrReturnInstruction struct {
@@ -83,10 +89,18 @@ type IrUnaryInstruction struct {
 	dst      *IrVal
 }
 
+type IrBinaryInstruction struct {
+	operator IrOperator
+	src1     *IrVal
+	src2     *IrVal
+	dst      *IrVal
+}
+
 type IrInstruction struct {
-	kind  IrInstructionKind
-	ret   *IrReturnInstruction
-	unary *IrUnaryInstruction
+	kind   IrInstructionKind
+	ret    *IrReturnInstruction
+	unary  *IrUnaryInstruction
+	binary *IrBinaryInstruction
 }
 
 func NewIrReturnInstruction(val *IrVal) *IrInstruction {
@@ -207,7 +221,38 @@ func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrIn
 			NewIrUnaryInstruction(irOp, innerVal, resultVar))
 
 		return resultVar
+	case EXP_BINARY:
+		v1 := g.generateExpression(expr.binary.lhs, instructions)
+		v2 := g.generateExpression(expr.binary.rhs, instructions)
 
+		dst := g.newTempVar()
+		var irOp IrOperator
+		switch expr.binary.operator {
+		case MINUS:
+			irOp = IR_BIN_SUB
+		case TOK_ASTERISK:
+			irOp = IR_BIN_MUL
+		case TOK_PLUS:
+			irOp = IR_BIN_ADD
+		case TOK_SLASH:
+			irOp = IR_BIN_DIV
+		case TOK_PERCENT:
+			irOp = IR_BIN_REMAINDER
+		default:
+			panic("unsupported unary operator")
+		}
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_BINARY,
+			binary: &IrBinaryInstruction{
+				operator: irOp,
+				src1:     v1,
+				src2:     v2,
+				dst:      dst,
+			},
+		})
+
+		return dst
 	default:
 		panic("unsupported expression kind in IR generator")
 	}

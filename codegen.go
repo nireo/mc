@@ -10,6 +10,11 @@ type Operation int
 const (
 	A_O_NOT Operation = iota
 	A_O_NEG
+	A_O_ADD
+	A_O_SUB
+	A_O_MUL
+	A_O_DIV
+	A_O_REMAINDER
 )
 
 func (o Operation) String() string {
@@ -18,6 +23,12 @@ func (o Operation) String() string {
 		return "notl"
 	case A_O_NEG:
 		return "negl"
+	case A_O_ADD:
+		return "addl"
+	case A_O_SUB:
+		return "subl"
+	case A_O_MUL:
+		return "imull"
 	}
 
 	return ""
@@ -28,7 +39,9 @@ type OperandKind int
 const (
 	OPERAND_IMM OperandKind = iota
 	OPERAND_REG_AX
+	OPERAND_REG_DX
 	OPERAND_REG_R10
+	OPERAND_REG_R11
 	OPERAND_PSEUDO
 	OPERAND_STACK
 )
@@ -45,8 +58,12 @@ func (o Operand) String() string {
 		return fmt.Sprintf("$%d", o.imm)
 	case OPERAND_REG_AX:
 		return "%eax"
+	case OPERAND_REG_DX:
+		return "%edx"
 	case OPERAND_REG_R10:
 		return "%r10d"
+	case OPERAND_REG_R11:
+		return "%r11d"
 	case OPERAND_STACK:
 		return fmt.Sprintf("%d(%%rbp)", o.imm)
 	}
@@ -60,11 +77,20 @@ const (
 	INS_MOV
 	INS_UNARY
 	INS_ALLOC_STACK
+	INS_CDQ
+	INS_IDIV
+	INS_BINARY
 )
 
 type UnaryInstruction struct {
 	op      Operation
 	operand *Operand
+}
+
+type BinaryInstruction struct {
+	op Operation
+	a  *Operand
+	b  *Operand
 }
 
 type Instruction struct {
@@ -73,6 +99,8 @@ type Instruction struct {
 	mov_b   *Operand
 	integer int64
 	unary   *UnaryInstruction
+	idiv    *Operand
+	binary  *BinaryInstruction
 }
 
 type GenFunction struct {
@@ -94,6 +122,8 @@ func (i Instruction) String() string {
 		return fmt.Sprintf("\tsubq $%d, %%rsp", i.integer)
 	case INS_UNARY:
 		return fmt.Sprintf("\t%s %s", i.unary.op, i.unary.operand)
+	case INS_BINARY:
+		return fmt.Sprintf("\t%s %s, %s", i.binary.op, i.binary.a, i.binary.b)
 	}
 
 	return ""
@@ -116,6 +146,16 @@ func convertIrOperator(op IrOperator) Operation {
 		return A_O_NOT
 	case IR_UNARY_NEGATE:
 		return A_O_NEG
+	case IR_BIN_ADD:
+		return A_O_ADD
+	case IR_BIN_REMAINDER:
+		return A_O_ADD
+	case IR_BIN_SUB:
+		return A_O_SUB
+	case IR_BIN_MUL:
+		return A_O_MUL
+	case IR_BIN_DIV:
+		return A_O_DIV
 	}
 
 	panic("unrecognized ir operator")
@@ -142,6 +182,55 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 				operand: convertIrValue(ins.unary.dst),
 			},
 		})
+	case IR_INSTRUCTION_BINARY:
+		if ins.binary.operator == IR_BIN_DIV {
+			*instructions = append(*instructions,
+				Instruction{
+					kind:  INS_MOV,
+					mov_a: convertIrValue(ins.binary.src1),
+					mov_b: &Operand{kind: OPERAND_REG_AX},
+				},
+				Instruction{kind: INS_CDQ},
+				Instruction{
+					kind: INS_IDIV, idiv: convertIrValue(ins.binary.src2),
+				},
+				Instruction{
+					kind:  INS_MOV,
+					mov_a: &Operand{kind: OPERAND_REG_AX},
+					mov_b: convertIrValue(ins.binary.dst),
+				},
+			)
+		} else if ins.binary.operator == IR_BIN_REMAINDER {
+			*instructions = append(*instructions,
+				Instruction{
+					kind:  INS_MOV,
+					mov_a: convertIrValue(ins.binary.src1),
+					mov_b: &Operand{kind: OPERAND_REG_AX},
+				},
+				Instruction{kind: INS_CDQ},
+				Instruction{
+					kind: INS_IDIV, idiv: convertIrValue(ins.binary.src2),
+				},
+				Instruction{
+					kind:  INS_MOV,
+					mov_a: &Operand{kind: OPERAND_REG_DX},
+					mov_b: convertIrValue(ins.binary.dst),
+				},
+			)
+		} else {
+			*instructions = append(*instructions, Instruction{
+				kind:  INS_MOV,
+				mov_a: convertIrValue(ins.binary.src1),
+				mov_b: convertIrValue(ins.binary.dst),
+			}, Instruction{
+				kind: INS_BINARY,
+				binary: &BinaryInstruction{
+					op: convertIrOperator(ins.binary.operator),
+					a:  convertIrValue(ins.binary.src2),
+					b:  convertIrValue(ins.binary.dst),
+				},
+			})
+		}
 	}
 }
 
