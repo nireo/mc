@@ -34,6 +34,8 @@ const (
 	TOK_ASTERISK
 	TOK_SLASH
 	TOK_PERCENT
+	TOK_AND
+	TOK_OR
 )
 
 // Pattern represents a regex pattern and its token constructor
