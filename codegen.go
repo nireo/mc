@@ -17,6 +17,17 @@ const (
 	A_O_REMAINDER
 )
 
+type ConditionCode int
+
+const (
+	COND_E ConditionCode = iota
+	COND_NE
+	COND_G
+	COND_GE
+	COND_L
+	COND_LE
+)
+
 func (o Operation) String() string {
 	switch o {
 	case A_O_NOT:
@@ -80,27 +91,51 @@ const (
 	INS_CDQ
 	INS_IDIV
 	INS_BINARY
+	INS_CMP
+	INS_JMP
+	INS_JMPCC
+	INS_SETCC
+	INS_LABEL
 )
 
 type UnaryInstruction struct {
 	op      Operation
-	operand *Operand
+	operand Operand
 }
 
 type BinaryInstruction struct {
 	op Operation
-	a  *Operand
-	b  *Operand
+	a  Operand
+	b  Operand
+}
+
+type Cmp struct {
+	a Operand
+	b Operand
+}
+
+type Jmp struct {
+	identifier string
+}
+
+type JmpCC struct {
+	condCode   ConditionCode
+	identifier string
+}
+
+type SetCCInstruction struct {
+	condCode ConditionCode
+	a        Operand
+}
+
+type Mov struct {
+	a Operand
+	b Operand
 }
 
 type Instruction struct {
-	kind    InstructionKind
-	mov_a   *Operand
-	mov_b   *Operand
-	integer int64
-	unary   *UnaryInstruction
-	idiv    *Operand
-	binary  *BinaryInstruction
+	kind InstructionKind
+	data any
 }
 
 type GenFunction struct {
@@ -117,28 +152,42 @@ func (i Instruction) String() string {
 	case INS_RET:
 		return "\tmovq %rbp, %rsp\n\tpopq %rbp\n\tret"
 	case INS_MOV:
-		return fmt.Sprintf("\tmovl %s, %s", i.mov_a.String(), i.mov_b.String())
+		mov := i.data.(*Mov)
+		return fmt.Sprintf("\tmovl %s, %s", mov.a.String(), mov.b.String())
 	case INS_ALLOC_STACK:
-		return fmt.Sprintf("\tsubq $%d, %%rsp", i.integer)
+		size := i.data.(int64)
+		return fmt.Sprintf("\tsubq $%d, %%rsp", size)
 	case INS_UNARY:
-		return fmt.Sprintf("\t%s %s", i.unary.op, i.unary.operand)
+		unary := i.data.(*UnaryInstruction)
+		return fmt.Sprintf("\t%s %s", unary.op, unary.operand)
 	case INS_BINARY:
-		return fmt.Sprintf("\t%s %s, %s", i.binary.op, i.binary.a, i.binary.b)
+		binary := i.data.(*BinaryInstruction)
+		return fmt.Sprintf("\t%s %s, %s", binary.op, binary.a, binary.b)
 	case INS_IDIV:
-		return fmt.Sprintf("\tidivl %s", i.idiv)
+		idivOperand := i.data.(Operand)
+		return fmt.Sprintf("\tidivl %s", idivOperand)
 	case INS_CDQ:
 		return "\tcdq"
+	case INS_CMP:
+		cmp := i.data.(*Cmp)
+		return fmt.Sprintf("\tcmpl %s, %s", cmp.a, cmp.b)
+	case INS_JMP:
+		jmp := i.data.(string)
+		return fmt.Sprintf("\tjmp .L%s", jmp)
+	case INS_JMPCC:
+		jmpcc := i.data.(*JmpCC)
+		return fmt.Sprintf("\tj%s .L%s", jmpcc.condCode, jmpcc.identifier)
 	}
 
 	return ""
 }
 
-func convertIrValue(val *IrVal) *Operand {
+func toOperand(val *IrVal) Operand {
 	switch val.kind {
 	case IR_VAL_CONSTANT:
-		return &Operand{kind: OPERAND_IMM, imm: val.constant}
+		return Operand{kind: OPERAND_IMM, imm: val.constant}
 	case IR_VAL_VAR:
-		return &Operand{kind: OPERAND_PSEUDO, ident: val.identifier}
+		return Operand{kind: OPERAND_PSEUDO, ident: val.identifier}
 	}
 
 	panic("unrecognized ir value")
@@ -169,69 +218,83 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 	switch ins.kind {
 	case IR_INSTRUCTION_RETURN:
 		*instructions = append(*instructions, Instruction{
-			kind:  INS_MOV,
-			mov_a: convertIrValue(ins.ret.val),
-			mov_b: &Operand{kind: OPERAND_REG_AX},
+			kind: INS_MOV,
+			data: &Mov{
+				a: toOperand(ins.ret.val),
+				b: Operand{kind: OPERAND_REG_AX},
+			},
 		}, Instruction{kind: INS_RET})
 		return
 	case IR_INSTRUCTION_UNARY:
 		*instructions = append(*instructions, Instruction{
-			kind:  INS_MOV,
-			mov_a: convertIrValue(ins.unary.src),
-			mov_b: convertIrValue(ins.unary.dst),
+			kind: INS_MOV,
+			data: &Mov{
+				a: toOperand(ins.unary.src),
+				b: toOperand(ins.unary.dst),
+			},
 		}, Instruction{
 			kind: INS_UNARY,
-			unary: &UnaryInstruction{
+			data: &UnaryInstruction{
 				op:      convertIrOperator(ins.unary.operator),
-				operand: convertIrValue(ins.unary.dst),
+				operand: toOperand(ins.unary.dst),
 			},
 		})
 	case IR_INSTRUCTION_BINARY:
 		if ins.binary.operator == IR_BIN_DIV {
 			*instructions = append(*instructions,
 				Instruction{
-					kind:  INS_MOV,
-					mov_a: convertIrValue(ins.binary.src1),
-					mov_b: &Operand{kind: OPERAND_REG_AX},
+					kind: INS_MOV,
+					data: &Mov{
+						a: toOperand(ins.binary.src1),
+						b: Operand{kind: OPERAND_REG_AX},
+					},
 				},
 				Instruction{kind: INS_CDQ},
 				Instruction{
-					kind: INS_IDIV, idiv: convertIrValue(ins.binary.src2),
+					kind: INS_IDIV, data: toOperand(ins.binary.src2),
 				},
 				Instruction{
-					kind:  INS_MOV,
-					mov_a: &Operand{kind: OPERAND_REG_AX},
-					mov_b: convertIrValue(ins.binary.dst),
+					kind: INS_MOV,
+					data: &Mov{
+						a: Operand{kind: OPERAND_REG_AX},
+						b: toOperand(ins.binary.dst),
+					},
 				},
 			)
 		} else if ins.binary.operator == IR_BIN_REMAINDER {
 			*instructions = append(*instructions,
 				Instruction{
-					kind:  INS_MOV,
-					mov_a: convertIrValue(ins.binary.src1),
-					mov_b: &Operand{kind: OPERAND_REG_AX},
+					kind: INS_MOV,
+					data: &Mov{
+						a: toOperand(ins.binary.src1),
+						b: Operand{kind: OPERAND_REG_AX},
+					},
 				},
 				Instruction{kind: INS_CDQ},
 				Instruction{
-					kind: INS_IDIV, idiv: convertIrValue(ins.binary.src2),
+					kind: INS_IDIV, data: toOperand(ins.binary.src2),
 				},
 				Instruction{
-					kind:  INS_MOV,
-					mov_a: &Operand{kind: OPERAND_REG_DX},
-					mov_b: convertIrValue(ins.binary.dst),
+					kind: INS_MOV,
+					data: &Mov{
+						a: Operand{kind: OPERAND_REG_DX},
+						b: toOperand(ins.binary.dst),
+					},
 				},
 			)
 		} else {
 			*instructions = append(*instructions, Instruction{
-				kind:  INS_MOV,
-				mov_a: convertIrValue(ins.binary.src1),
-				mov_b: convertIrValue(ins.binary.dst),
+				kind: INS_MOV,
+				data: &Mov{
+					a: toOperand(ins.binary.src1),
+					b: toOperand(ins.binary.dst),
+				},
 			}, Instruction{
 				kind: INS_BINARY,
-				binary: &BinaryInstruction{
+				data: &BinaryInstruction{
 					op: convertIrOperator(ins.binary.operator),
-					a:  convertIrValue(ins.binary.src2),
-					b:  convertIrValue(ins.binary.dst),
+					a:  toOperand(ins.binary.src2),
+					b:  toOperand(ins.binary.dst),
 				},
 			})
 		}
@@ -245,97 +308,115 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 	for i := range *insts {
 		inst := &(*insts)[i]
 
-		if inst.kind == INS_MOV && inst.mov_a.kind == OPERAND_PSEUDO {
-			if _, exists := pseudoToStack[inst.mov_a.ident]; !exists {
-				pseudoToStack[inst.mov_a.ident] = currentOffset
+		switch inst.kind {
+		case INS_MOV:
+			mov := inst.data.(*Mov)
+			if mov.a.kind == OPERAND_PSEUDO {
+				if _, exists := pseudoToStack[mov.a.ident]; !exists {
+					pseudoToStack[mov.a.ident] = currentOffset
+					currentOffset -= 4
+				}
+			}
+
+			if mov.b.kind == OPERAND_PSEUDO {
+				if _, exists := pseudoToStack[mov.b.ident]; !exists {
+					pseudoToStack[mov.b.ident] = currentOffset
+					currentOffset -= 4
+				}
+			}
+		case INS_IDIV:
+			operand := inst.data.(Operand)
+			if _, exists := pseudoToStack[operand.ident]; !exists {
+				pseudoToStack[operand.ident] = currentOffset
 				currentOffset -= 4
+			}
+		case INS_UNARY:
+			unary := inst.data.(*UnaryInstruction)
+
+			if inst.kind == INS_UNARY && unary.operand.kind == OPERAND_PSEUDO {
+				if _, exists := pseudoToStack[unary.operand.ident]; !exists {
+					pseudoToStack[unary.operand.ident] = currentOffset
+					currentOffset -= 4
+				}
+			}
+		case INS_BINARY:
+			bin := inst.data.(*BinaryInstruction)
+
+			if bin.a.kind == OPERAND_PSEUDO {
+				if _, exists := pseudoToStack[bin.a.ident]; !exists {
+					pseudoToStack[bin.a.ident] = currentOffset
+					currentOffset -= 4
+				}
+			}
+
+			if bin.b.kind == OPERAND_PSEUDO {
+				if _, exists := pseudoToStack[bin.b.ident]; !exists {
+					pseudoToStack[bin.b.ident] = currentOffset
+					currentOffset -= 4
+				}
 			}
 		}
 
-		if inst.kind == INS_MOV && inst.mov_b.kind == OPERAND_PSEUDO {
-			if _, exists := pseudoToStack[inst.mov_b.ident]; !exists {
-				pseudoToStack[inst.mov_b.ident] = currentOffset
-				currentOffset -= 4
-			}
-		}
-
-		if inst.kind == INS_UNARY && inst.unary.operand.kind == OPERAND_PSEUDO {
-			if _, exists := pseudoToStack[inst.unary.operand.ident]; !exists {
-				pseudoToStack[inst.unary.operand.ident] = currentOffset
-				currentOffset -= 4
-			}
-		}
-
-		if inst.kind == INS_BINARY && inst.binary.a.kind == OPERAND_PSEUDO {
-			if _, exists := pseudoToStack[inst.binary.a.ident]; !exists {
-				pseudoToStack[inst.binary.a.ident] = currentOffset
-				currentOffset -= 4
-			}
-		}
-
-		if inst.kind == INS_BINARY && inst.binary.b.kind == OPERAND_PSEUDO {
-			if _, exists := pseudoToStack[inst.binary.b.ident]; !exists {
-				pseudoToStack[inst.binary.b.ident] = currentOffset
-				currentOffset -= 4
-			}
-		}
-
-		if inst.kind == INS_IDIV && inst.idiv.kind == OPERAND_PSEUDO {
-			if _, exists := pseudoToStack[inst.idiv.ident]; !exists {
-				pseudoToStack[inst.idiv.ident] = currentOffset
-				currentOffset -= 4
-			}
-		}
 	}
 
 	for i := range *insts {
 		inst := &(*insts)[i]
 
-		if inst.kind == INS_MOV && inst.mov_a.kind == OPERAND_PSEUDO {
-			offset, exists := pseudoToStack[inst.mov_a.ident]
-			if exists {
-				inst.mov_a.kind = OPERAND_STACK
-				inst.mov_a.imm = offset
+		switch inst.kind {
+		case INS_MOV:
+			mov := inst.data.(*Mov)
+			if mov.a.kind == OPERAND_PSEUDO {
+				offset, exists := pseudoToStack[mov.a.ident]
+				if exists {
+					mov.a.kind = OPERAND_STACK
+					mov.a.imm = offset
+				}
 			}
-		}
 
-		if inst.kind == INS_MOV && inst.mov_b.kind == OPERAND_PSEUDO {
-			offset, exists := pseudoToStack[inst.mov_b.ident]
-			if exists {
-				inst.mov_b.kind = OPERAND_STACK
-				inst.mov_b.imm = offset
+			if mov.b.kind == OPERAND_PSEUDO {
+				offset, exists := pseudoToStack[mov.b.ident]
+				if exists {
+					mov.b.kind = OPERAND_STACK
+					mov.b.imm = offset
+				}
 			}
-		}
+		case INS_IDIV:
+			operand := inst.data.(Operand)
 
-		if inst.kind == INS_UNARY && inst.unary.operand.kind == OPERAND_PSEUDO {
-			offset, exists := pseudoToStack[inst.unary.operand.ident]
-			if exists {
-				inst.unary.operand.kind = OPERAND_STACK
-				inst.unary.operand.imm = offset
+			if operand.kind == OPERAND_PSEUDO {
+				offset, exists := pseudoToStack[operand.ident]
+				if exists {
+					operand.kind = OPERAND_STACK
+					operand.imm = offset
+				}
 			}
-		}
+		case INS_UNARY:
+			unary := inst.data.(*UnaryInstruction)
 
-		if inst.kind == INS_BINARY && inst.binary.a.kind == OPERAND_PSEUDO {
-			offset, exists := pseudoToStack[inst.binary.a.ident]
-			if exists {
-				inst.binary.a.kind = OPERAND_STACK
-				inst.binary.a.imm = offset
+			if inst.kind == INS_UNARY && unary.operand.kind == OPERAND_PSEUDO {
+				offset, exists := pseudoToStack[unary.operand.ident]
+				if exists {
+					unary.operand.kind = OPERAND_STACK
+					unary.operand.imm = offset
+				}
 			}
-		}
+		case INS_BINARY:
+			bin := inst.data.(*BinaryInstruction)
 
-		if inst.kind == INS_BINARY && inst.binary.b.kind == OPERAND_PSEUDO {
-			offset, exists := pseudoToStack[inst.binary.b.ident]
-			if exists {
-				inst.binary.b.kind = OPERAND_STACK
-				inst.binary.b.imm = offset
+			if bin.a.kind == OPERAND_PSEUDO {
+				offset, exists := pseudoToStack[bin.a.ident]
+				if exists {
+					bin.a.kind = OPERAND_STACK
+					bin.a.imm = offset
+				}
 			}
-		}
 
-		if inst.kind == INS_IDIV && inst.idiv.kind == OPERAND_PSEUDO {
-			offset, exists := pseudoToStack[inst.idiv.ident]
-			if exists {
-				inst.idiv.kind = OPERAND_STACK
-				inst.idiv.imm = offset
+			if bin.b.kind == OPERAND_PSEUDO {
+				offset, exists := pseudoToStack[bin.b.ident]
+				if exists {
+					bin.b.kind = OPERAND_STACK
+					bin.b.imm = offset
+				}
 			}
 		}
 	}
@@ -347,45 +428,52 @@ func fixInstructions(insts *[]Instruction) {
 	var fixedInstructions []Instruction
 
 	for _, inst := range *insts {
-		if inst.kind == INS_MOV && inst.mov_a.kind == OPERAND_STACK && inst.mov_b.kind == OPERAND_STACK {
+		if mov, ok := inst.data.(*Mov); ok && mov.a.kind == OPERAND_STACK && mov.b.kind == OPERAND_STACK {
 			// movl -4(%rbp), -8(%rbp)
 			// ->
 			// movl -4(%rbp), %r10d
 			// movl %r10d, -8(%rbp)
 			moveToR10 := Instruction{
-				kind:  INS_MOV,
-				mov_a: inst.mov_a,
-				mov_b: &Operand{kind: OPERAND_REG_R10},
+				kind: INS_MOV,
+				data: &Mov{
+					a: mov.a,
+					b: Operand{kind: OPERAND_REG_R10},
+				},
 			}
 
 			moveFromR10 := Instruction{
-				kind:  INS_MOV,
-				mov_a: &Operand{kind: OPERAND_REG_R10},
-				mov_b: inst.mov_b,
+				kind: INS_MOV,
+				data: &Mov{
+					a: Operand{kind: OPERAND_REG_R10},
+					b: mov.b,
+				},
 			}
 
 			fixedInstructions = append(fixedInstructions, moveToR10, moveFromR10)
-		} else if inst.kind == INS_IDIV && inst.idiv.kind == OPERAND_IMM {
+		} else if operand, ok := inst.data.(Operand); ok &&
+			inst.kind == INS_IDIV && operand.kind == OPERAND_IMM {
 			// idivl $3
 			// ->
 			// movl $3, %r10d
 			// idivl %r10d
 
 			movToR10 := Instruction{
-				kind:  INS_MOV,
-				mov_a: inst.idiv,
-				mov_b: &Operand{kind: OPERAND_REG_R10},
+				kind: INS_MOV,
+				data: &Mov{
+					a: operand,
+					b: Operand{kind: OPERAND_REG_R10},
+				},
 			}
 
 			idivl := Instruction{
 				kind: INS_IDIV,
-				idiv: &Operand{kind: OPERAND_REG_R10},
+				data: Operand{kind: OPERAND_REG_R10},
 			}
 			fixedInstructions = append(fixedInstructions, movToR10, idivl)
-		} else if inst.kind == INS_BINARY &&
-			(inst.binary.op == A_O_ADD || inst.binary.op == A_O_SUB) &&
-			inst.binary.a.kind == OPERAND_STACK &&
-			inst.binary.b.kind == OPERAND_STACK {
+		} else if binary, ok := inst.data.(*BinaryInstruction); ok &&
+			(binary.op == A_O_ADD || binary.op == A_O_SUB) &&
+			binary.a.kind == OPERAND_STACK &&
+			binary.b.kind == OPERAND_STACK {
 
 			// addl -4(%rbp), -8(%rbp)
 			// ->
@@ -393,23 +481,25 @@ func fixInstructions(insts *[]Instruction) {
 			// addl %r10d, -8(%rbp)
 
 			moveToR10 := Instruction{
-				kind:  INS_MOV,
-				mov_a: inst.binary.a,
-				mov_b: &Operand{kind: OPERAND_REG_R10},
+				kind: INS_MOV,
+				data: &Mov{
+					a: binary.a,
+					b: Operand{kind: OPERAND_REG_R10},
+				},
 			}
 
 			addl := Instruction{
 				kind: INS_BINARY,
-				binary: &BinaryInstruction{
-					op: inst.binary.op,
-					a:  &Operand{kind: OPERAND_REG_R10},
-					b:  inst.binary.b,
+				data: &BinaryInstruction{
+					op: binary.op,
+					a:  Operand{kind: OPERAND_REG_R10},
+					b:  binary.b,
 				},
 			}
 			fixedInstructions = append(fixedInstructions, moveToR10, addl)
-		} else if inst.kind == INS_BINARY &&
-			inst.binary.op == A_O_MUL &&
-			inst.binary.b.kind == OPERAND_STACK {
+		} else if binary, ok := inst.data.(*BinaryInstruction); ok &&
+			binary.op == A_O_MUL &&
+			binary.b.kind == OPERAND_STACK {
 
 			// imull $3, -4(%rbp)
 			// ->
@@ -417,24 +507,28 @@ func fixInstructions(insts *[]Instruction) {
 			// imull $3, %r11d
 			// movl %r11d, -4(%rbp)
 			moveToR11 := Instruction{
-				kind:  INS_MOV,
-				mov_a: inst.binary.b,
-				mov_b: &Operand{kind: OPERAND_REG_R11},
+				kind: INS_MOV,
+				data: &Mov{
+					a: binary.b,
+					b: Operand{kind: OPERAND_REG_R11},
+				},
 			}
 
 			imull := Instruction{
 				kind: INS_BINARY,
-				binary: &BinaryInstruction{
+				data: &BinaryInstruction{
 					op: A_O_MUL,
-					a:  inst.binary.a,
-					b:  &Operand{kind: OPERAND_REG_R11},
+					a:  binary.a,
+					b:  Operand{kind: OPERAND_REG_R11},
 				},
 			}
 
 			movToStack := Instruction{
-				kind:  INS_MOV,
-				mov_a: &Operand{kind: OPERAND_REG_R11},
-				mov_b: inst.binary.b,
+				kind: INS_MOV,
+				data: &Mov{
+					a: Operand{kind: OPERAND_REG_R11},
+					b: binary.b,
+				},
 			}
 			fixedInstructions = append(fixedInstructions, moveToR11, imull, movToStack)
 		} else {
@@ -460,8 +554,8 @@ func GenerateIr(prog *IrProgram) *GenProgram {
 
 	if stackSize > 0 {
 		allocInst := Instruction{
-			kind:    INS_ALLOC_STACK,
-			integer: int64(stackSize),
+			kind: INS_ALLOC_STACK,
+			data: int64(stackSize),
 		}
 
 		genFn.instructions = append([]Instruction{allocInst}, genFn.instructions...)

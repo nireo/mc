@@ -220,19 +220,19 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInstruction) {
 	switch stmt.kind {
 	case STMT_RETURN:
-		val := g.generateExpression(stmt.ret.expr, instructions)
+		val := g.generateExpression(stmt.data.(*ReturnStatement).expr, instructions)
 		*instructions = append(*instructions, NewIrReturnInstruction(val))
 	case STMT_IF:
 		panic("if statements not implemented in IR generator")
 	}
 }
 
-func (g *IrGenerator) generateUnary(expr *Expression, instructions *[]*IrInstruction) *IrVal {
-	innerVal := g.generateExpression(expr.unary.expr, instructions)
+func (g *IrGenerator) generateUnary(unaryExpr *UnaryExpr, instructions *[]*IrInstruction) *IrVal {
+	innerVal := g.generateExpression(unaryExpr.expr, instructions)
 	resultVar := g.newTempVar()
 
 	var irOp IrOperator
-	switch expr.unary.operator {
+	switch unaryExpr.operator {
 	case MINUS:
 		irOp = IR_UNARY_NEGATE
 	case TILDE:
@@ -248,7 +248,7 @@ func (g *IrGenerator) generateUnary(expr *Expression, instructions *[]*IrInstruc
 }
 
 func (g *IrGenerator) generateLogicalBinaryExpr(
-	expr *Expression,
+	binExpr *BinaryExpr,
 	instructions *[]*IrInstruction,
 ) *IrVal {
 	falseLabel := g.newLabel()
@@ -257,11 +257,11 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 
 	resultVar := g.newTempVar()
 
-	if expr.binary.operator == TOK_AND {
+	if binExpr.operator == TOK_AND {
 		// with the && operation if the first part evaluates to false we can
 		// short circuit
 
-		v1 := g.generateExpression(expr.binary.lhs, instructions)
+		v1 := g.generateExpression(binExpr.lhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
 			jumpIfZero: &IrJumpIfZero{
@@ -270,7 +270,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		v2 := g.generateBinaryExpr(expr.binary.rhs, instructions)
+		v2 := g.generateExpression(binExpr.rhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
 			jumpIfZero: &IrJumpIfZero{
@@ -283,8 +283,8 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			kind: IR_INSTRUCTION_JUMP,
 			str:  trueLabel,
 		})
-	} else if expr.binary.operator == TOK_OR {
-		v1 := g.generateExpression(expr.binary.lhs, instructions)
+	} else if binExpr.operator == TOK_OR {
+		v1 := g.generateExpression(binExpr.lhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
 			jumpNotZero: &IrJumpIfNotZero{
@@ -293,7 +293,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		v2 := g.generateExpression(expr.binary.rhs, instructions)
+		v2 := g.generateExpression(binExpr.rhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
 			jumpNotZero: &IrJumpIfNotZero{
@@ -342,17 +342,17 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 	return resultVar
 }
 
-func (g *IrGenerator) generateBinaryExpr(expr *Expression, instructions *[]*IrInstruction) *IrVal {
-	if expr.binary.operator == TOK_AND || expr.binary.operator == TOK_OR {
+func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrInstruction) *IrVal {
+	if expr.operator == TOK_AND || expr.operator == TOK_OR {
 		return g.generateLogicalBinaryExpr(expr, instructions)
 	}
 
-	v1 := g.generateExpression(expr.binary.lhs, instructions)
-	v2 := g.generateExpression(expr.binary.rhs, instructions)
+	v1 := g.generateExpression(expr.lhs, instructions)
+	v2 := g.generateExpression(expr.rhs, instructions)
 
 	dst := g.newTempVar()
 	var irOp IrOperator
-	switch expr.binary.operator {
+	switch expr.operator {
 	case MINUS:
 		irOp = IR_BIN_SUB
 	case TOK_ASTERISK:
@@ -383,41 +383,11 @@ func (g *IrGenerator) generateBinaryExpr(expr *Expression, instructions *[]*IrIn
 func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrInstruction) *IrVal {
 	switch expr.kind {
 	case EXP_INTEGER:
-		return NewIrConstant(expr.integer)
+		return NewIrConstant(expr.data.(int64))
 	case EXP_UNARY:
-		return g.generateUnary(expr, instructions)
+		return g.generateUnary(expr.data.(*UnaryExpr), instructions)
 	case EXP_BINARY:
-		v1 := g.generateExpression(expr.binary.lhs, instructions)
-		v2 := g.generateExpression(expr.binary.rhs, instructions)
-
-		dst := g.newTempVar()
-		var irOp IrOperator
-		switch expr.binary.operator {
-		case MINUS:
-			irOp = IR_BIN_SUB
-		case TOK_ASTERISK:
-			irOp = IR_BIN_MUL
-		case TOK_PLUS:
-			irOp = IR_BIN_ADD
-		case TOK_SLASH:
-			irOp = IR_BIN_DIV
-		case TOK_PERCENT:
-			irOp = IR_BIN_REMAINDER
-		default:
-			panic("unsupported unary operator")
-		}
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_BINARY,
-			binary: &IrBinaryInstruction{
-				operator: irOp,
-				src1:     v1,
-				src2:     v2,
-				dst:      dst,
-			},
-		})
-
-		return dst
+		return g.generateBinaryExpr(expr.data.(*BinaryExpr), instructions)
 	default:
 		panic("unsupported expression kind in IR generator")
 	}

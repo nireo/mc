@@ -26,10 +26,8 @@ type BinaryExpr struct {
 
 // Expression represents a C expression
 type Expression struct {
-	kind    ExpressionKind
-	integer int64
-	unary   *UnaryExpr
-	binary  *BinaryExpr
+	kind ExpressionKind
+	data any
 }
 
 var precedences = map[Token]int{
@@ -61,8 +59,7 @@ type IfStatement struct {
 // Statement represents a C expression
 type Statement struct {
 	kind StatementKind
-	ret  *ReturnStatement
-	ifs  *IfStatement
+	data any
 }
 
 type FunctionDef struct {
@@ -100,17 +97,10 @@ func (p *Parser) parseStatement() *Statement {
 
 	return &Statement{
 		kind: STMT_RETURN,
-		ret: &ReturnStatement{
+		data: &ReturnStatement{
 			expr: expr,
 		},
 	}
-}
-
-func (p *Parser) peek() TokenValue {
-	if p.idx >= len(p.tokens)-1 {
-		panic("cannot peek out of range")
-	}
-	return p.tokens[p.idx+1]
 }
 
 func (p *Parser) parseFactor() *Expression {
@@ -120,15 +110,15 @@ func (p *Parser) parseFactor() *Expression {
 	switch tok.Kind {
 	case TOK_CONSTANT:
 		return &Expression{
-			kind:    EXP_INTEGER,
-			integer: tok.Value.(int64),
+			kind: EXP_INTEGER,
+			data: tok.Value.(int64),
 		}
 	case TILDE, MINUS:
 		op := tok.Kind
 		innerExpr := p.parseFactor()
 		return &Expression{
 			kind: EXP_UNARY,
-			unary: &UnaryExpr{
+			data: &UnaryExpr{
 				operator: op,
 				expr:     innerExpr,
 			},
@@ -163,7 +153,7 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 		right := p.parseExpr(pred + 1)
 		left = &Expression{
 			kind: EXP_BINARY,
-			binary: &BinaryExpr{
+			data: &BinaryExpr{
 				operator: next,
 				lhs:      left,
 				rhs:      right,
