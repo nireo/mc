@@ -128,6 +128,10 @@ type SetCCInstruction struct {
 	a        Operand
 }
 
+type Idivl struct {
+	op Operand
+}
+
 type Mov struct {
 	a Operand
 	b Operand
@@ -164,8 +168,8 @@ func (i Instruction) String() string {
 		binary := i.data.(*BinaryInstruction)
 		return fmt.Sprintf("\t%s %s, %s", binary.op, binary.a, binary.b)
 	case INS_IDIV:
-		idivOperand := i.data.(Operand)
-		return fmt.Sprintf("\tidivl %s", idivOperand)
+		idivl := i.data.(*Idivl)
+		return fmt.Sprintf("\tidivl %s", idivl.op)
 	case INS_CDQ:
 		return "\tcdq"
 	case INS_CMP:
@@ -251,7 +255,10 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 				},
 				Instruction{kind: INS_CDQ},
 				Instruction{
-					kind: INS_IDIV, data: toOperand(ins.binary.src2),
+					kind: INS_IDIV,
+					data: &Idivl{
+						op: toOperand(ins.binary.src2),
+					},
 				},
 				Instruction{
 					kind: INS_MOV,
@@ -272,7 +279,9 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 				},
 				Instruction{kind: INS_CDQ},
 				Instruction{
-					kind: INS_IDIV, data: toOperand(ins.binary.src2),
+					kind: INS_IDIV, data: &Idivl{
+						op: toOperand(ins.binary.src2),
+					},
 				},
 				Instruction{
 					kind: INS_MOV,
@@ -305,119 +314,61 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 	pseudoToStack := make(map[string]int64)
 	currentOffset := int64(-4)
 
-	for i := range *insts {
-		inst := &(*insts)[i]
-
-		switch inst.kind {
-		case INS_MOV:
-			mov := inst.data.(*Mov)
-			if mov.a.kind == OPERAND_PSEUDO {
-				if _, exists := pseudoToStack[mov.a.ident]; !exists {
-					pseudoToStack[mov.a.ident] = currentOffset
-					currentOffset -= 4
-				}
-			}
-
-			if mov.b.kind == OPERAND_PSEUDO {
-				if _, exists := pseudoToStack[mov.b.ident]; !exists {
-					pseudoToStack[mov.b.ident] = currentOffset
-					currentOffset -= 4
-				}
-			}
-		case INS_IDIV:
-			operand := inst.data.(Operand)
-			if _, exists := pseudoToStack[operand.ident]; !exists {
-				pseudoToStack[operand.ident] = currentOffset
-				currentOffset -= 4
-			}
-		case INS_UNARY:
-			unary := inst.data.(*UnaryInstruction)
-
-			if inst.kind == INS_UNARY && unary.operand.kind == OPERAND_PSEUDO {
-				if _, exists := pseudoToStack[unary.operand.ident]; !exists {
-					pseudoToStack[unary.operand.ident] = currentOffset
-					currentOffset -= 4
-				}
-			}
-		case INS_BINARY:
-			bin := inst.data.(*BinaryInstruction)
-
-			if bin.a.kind == OPERAND_PSEUDO {
-				if _, exists := pseudoToStack[bin.a.ident]; !exists {
-					pseudoToStack[bin.a.ident] = currentOffset
-					currentOffset -= 4
-				}
-			}
-
-			if bin.b.kind == OPERAND_PSEUDO {
-				if _, exists := pseudoToStack[bin.b.ident]; !exists {
-					pseudoToStack[bin.b.ident] = currentOffset
+	for _, inst := range *insts {
+		registerPseudo := func(op Operand) {
+			if op.kind == OPERAND_PSEUDO {
+				if _, exists := pseudoToStack[op.ident]; !exists {
+					pseudoToStack[op.ident] = currentOffset
 					currentOffset -= 4
 				}
 			}
 		}
 
+		switch inst.kind {
+		case INS_MOV:
+			mov := inst.data.(*Mov)
+			registerPseudo(mov.a)
+			registerPseudo(mov.b)
+		case INS_IDIV:
+			idivl := inst.data.(*Idivl)
+			registerPseudo(idivl.op)
+		case INS_UNARY:
+			unary := inst.data.(*UnaryInstruction)
+			registerPseudo(unary.operand)
+		case INS_BINARY:
+			bin := inst.data.(*BinaryInstruction)
+			registerPseudo(bin.a)
+			registerPseudo(bin.b)
+		}
 	}
 
 	for i := range *insts {
 		inst := &(*insts)[i]
 
+		replacePseudo := func(op *Operand) {
+			if op.kind == OPERAND_PSEUDO {
+				if offset, exists := pseudoToStack[op.ident]; exists {
+					op.kind = OPERAND_STACK
+					op.imm = offset
+				}
+			}
+		}
+
 		switch inst.kind {
 		case INS_MOV:
 			mov := inst.data.(*Mov)
-			if mov.a.kind == OPERAND_PSEUDO {
-				offset, exists := pseudoToStack[mov.a.ident]
-				if exists {
-					mov.a.kind = OPERAND_STACK
-					mov.a.imm = offset
-				}
-			}
-
-			if mov.b.kind == OPERAND_PSEUDO {
-				offset, exists := pseudoToStack[mov.b.ident]
-				if exists {
-					mov.b.kind = OPERAND_STACK
-					mov.b.imm = offset
-				}
-			}
+			replacePseudo(&mov.a)
+			replacePseudo(&mov.b)
 		case INS_IDIV:
-			operand := inst.data.(Operand)
-
-			if operand.kind == OPERAND_PSEUDO {
-				offset, exists := pseudoToStack[operand.ident]
-				if exists {
-					operand.kind = OPERAND_STACK
-					operand.imm = offset
-				}
-			}
+			idivl := inst.data.(*Idivl)
+			replacePseudo(&idivl.op)
 		case INS_UNARY:
 			unary := inst.data.(*UnaryInstruction)
-
-			if inst.kind == INS_UNARY && unary.operand.kind == OPERAND_PSEUDO {
-				offset, exists := pseudoToStack[unary.operand.ident]
-				if exists {
-					unary.operand.kind = OPERAND_STACK
-					unary.operand.imm = offset
-				}
-			}
+			replacePseudo(&unary.operand)
 		case INS_BINARY:
 			bin := inst.data.(*BinaryInstruction)
-
-			if bin.a.kind == OPERAND_PSEUDO {
-				offset, exists := pseudoToStack[bin.a.ident]
-				if exists {
-					bin.a.kind = OPERAND_STACK
-					bin.a.imm = offset
-				}
-			}
-
-			if bin.b.kind == OPERAND_PSEUDO {
-				offset, exists := pseudoToStack[bin.b.ident]
-				if exists {
-					bin.b.kind = OPERAND_STACK
-					bin.b.imm = offset
-				}
-			}
+			replacePseudo(&bin.a)
+			replacePseudo(&bin.b)
 		}
 	}
 
@@ -450,8 +401,7 @@ func fixInstructions(insts *[]Instruction) {
 			}
 
 			fixedInstructions = append(fixedInstructions, moveToR10, moveFromR10)
-		} else if operand, ok := inst.data.(Operand); ok &&
-			inst.kind == INS_IDIV && operand.kind == OPERAND_IMM {
+		} else if idivl, ok := inst.data.(*Idivl); ok && idivl.op.kind == OPERAND_IMM {
 			// idivl $3
 			// ->
 			// movl $3, %r10d
@@ -460,14 +410,16 @@ func fixInstructions(insts *[]Instruction) {
 			movToR10 := Instruction{
 				kind: INS_MOV,
 				data: &Mov{
-					a: operand,
+					a: idivl.op,
 					b: Operand{kind: OPERAND_REG_R10},
 				},
 			}
 
 			idivl := Instruction{
 				kind: INS_IDIV,
-				data: Operand{kind: OPERAND_REG_R10},
+				data: &Idivl{
+					op: Operand{kind: OPERAND_REG_R10},
+				},
 			}
 			fixedInstructions = append(fixedInstructions, movToR10, idivl)
 		} else if binary, ok := inst.data.(*BinaryInstruction); ok &&
