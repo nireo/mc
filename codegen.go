@@ -57,6 +57,13 @@ const (
 	OPERAND_STACK
 )
 
+var oneByteRegisters = map[OperandKind]string{
+	OPERAND_REG_AX:  "%al",
+	OPERAND_REG_DX:  "%dl",
+	OPERAND_REG_R10: "%r10b",
+	OPERAND_REG_R11: "%r11b",
+}
+
 type Operand struct {
 	kind  OperandKind
 	imm   int64
@@ -123,7 +130,7 @@ type JmpCC struct {
 	identifier string
 }
 
-type SetCCInstruction struct {
+type SetCC struct {
 	condCode ConditionCode
 	a        Operand
 }
@@ -181,6 +188,16 @@ func (i Instruction) String() string {
 	case INS_JMPCC:
 		jmpcc := i.data.(*JmpCC)
 		return fmt.Sprintf("\tj%s .L%s", jmpcc.condCode, jmpcc.identifier)
+	case INS_SETCC:
+		setcc := i.data.(*SetCC)
+		if regName, shouldEmitSingleByte := oneByteRegisters[setcc.a.kind]; shouldEmitSingleByte {
+			return fmt.Sprintf("\tset%s %s", setcc.condCode, regName)
+		}
+		// since the register wasn't ax, dx, r10 or r11. just emit the existing one
+
+		return fmt.Sprintf("\tset%s %s", setcc.condCode, setcc.a)
+	case INS_LABEL:
+		return fmt.Sprintf(".L%s", i.data.(string))
 	}
 
 	return ""
@@ -232,19 +249,41 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 		return
 	case IR_INSTRUCTION_UNARY:
 		unaryIr := ins.data.(*IrUnaryInstruction)
-		*instructions = append(*instructions, Instruction{
-			kind: INS_MOV,
-			data: &Mov{
-				a: toOperand(unaryIr.src),
-				b: toOperand(unaryIr.dst),
-			},
-		}, Instruction{
-			kind: INS_UNARY,
-			data: &UnaryInstruction{
-				op:      convertIrOperator(unaryIr.operator),
-				operand: toOperand(unaryIr.dst),
-			},
-		})
+		if unaryIr.operator == IR_UNARY_NOT {
+			*instructions = append(*instructions, Instruction{
+				kind: INS_CMP,
+				data: &Cmp{
+					a: Operand{kind: OPERAND_IMM, imm: 0},
+					b: toOperand(unaryIr.src),
+				},
+			}, Instruction{
+				kind: INS_MOV,
+				data: &Mov{
+					a: Operand{kind: OPERAND_IMM, imm: 0},
+					b: toOperand(unaryIr.dst),
+				},
+			}, Instruction{
+				kind: INS_SETCC,
+				data: &SetCC{
+					condCode: COND_E,
+					a:        toOperand(unaryIr.dst),
+				},
+			})
+		} else {
+			*instructions = append(*instructions, Instruction{
+				kind: INS_MOV,
+				data: &Mov{
+					a: toOperand(unaryIr.src),
+					b: toOperand(unaryIr.dst),
+				},
+			}, Instruction{
+				kind: INS_UNARY,
+				data: &UnaryInstruction{
+					op:      convertIrOperator(unaryIr.operator),
+					operand: toOperand(unaryIr.dst),
+				},
+			})
+		}
 	case IR_INSTRUCTION_BINARY:
 		binaryIr := ins.data.(*IrBinaryInstruction)
 		if binaryIr.operator == IR_BIN_DIV {
@@ -286,6 +325,7 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 						op: toOperand(binaryIr.src2),
 					},
 				},
+
 				Instruction{
 					kind: INS_MOV,
 					data: &Mov{
@@ -310,6 +350,59 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 				},
 			})
 		}
+	case IR_INSTRUCTION_JUMP:
+		jumpLabel := ins.data.(string)
+		*instructions = append(*instructions, Instruction{
+			kind: INS_JMP,
+			data: &Jmp{
+				identifier: jumpLabel,
+			},
+		})
+	case IR_INSTRUCTION_JUMP_IF_ZERO:
+		jumpIfZero := ins.data.(*IrJumpIfZero)
+		*instructions = append(*instructions, Instruction{
+			kind: INS_CMP,
+			data: &Cmp{
+				a: Operand{kind: OPERAND_IMM, imm: 0},
+				b: toOperand(jumpIfZero.condition),
+			},
+		}, Instruction{
+			kind: INS_JMPCC,
+			data: &JmpCC{
+				condCode:   COND_E,
+				identifier: jumpIfZero.target,
+			},
+		})
+	case IR_INSTRUCTION_JUMP_IF_NOT_ZERO:
+		jmpifn0 := ins.data.(*IrJumpIfNotZero)
+		*instructions = append(*instructions, Instruction{
+			kind: INS_CMP,
+			data: &Cmp{
+				a: Operand{kind: OPERAND_IMM, imm: 0},
+				b: toOperand(jmpifn0.condition),
+			},
+		}, Instruction{
+			kind: INS_JMPCC,
+			data: &JmpCC{
+				condCode:   COND_NE,
+				identifier: jmpifn0.target,
+			},
+		})
+	case IR_INSTRUCTION_COPY:
+		cpy := ins.data.(*IrCopyInstruction)
+		*instructions = append(*instructions, Instruction{
+			kind: INS_MOV,
+			data: &Mov{
+				a: toOperand(cpy.src),
+				b: toOperand(cpy.dst),
+			},
+		})
+	case IR_INSTRUCTION_LABEL:
+		label := ins.data.(string)
+		*instructions = append(*instructions, Instruction{
+			kind: INS_LABEL,
+			data: label,
+		})
 	}
 }
 
@@ -342,6 +435,13 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 			bin := inst.data.(*BinaryInstruction)
 			registerPseudo(bin.a)
 			registerPseudo(bin.b)
+		case INS_CMP:
+			cmp := inst.data.(*Cmp)
+			registerPseudo(cmp.a)
+			registerPseudo(cmp.b)
+		case INS_SETCC:
+			setcc := inst.data.(*SetCC)
+			registerPseudo(setcc.a)
 		}
 	}
 
@@ -372,6 +472,13 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 			bin := inst.data.(*BinaryInstruction)
 			replacePseudo(&bin.a)
 			replacePseudo(&bin.b)
+		case INS_CMP:
+			cmp := inst.data.(*Cmp)
+			replacePseudo(&cmp.a)
+			replacePseudo(&cmp.b)
+		case INS_SETCC:
+			setcc := inst.data.(*SetCC)
+			replacePseudo(&setcc.a)
 		}
 	}
 
@@ -486,6 +593,50 @@ func fixInstructions(insts *[]Instruction) {
 				},
 			}
 			fixedInstructions = append(fixedInstructions, moveToR11, imull, movToStack)
+		} else if cmp, ok := inst.data.(*Cmp); ok &&
+			cmp.a.kind == OPERAND_STACK && cmp.b.kind == OPERAND_STACK {
+			// both operands cannot be stack addresses therefore we need to fix it
+			// for example:
+			// cmpl -4(%rbp), -8(%rbp)
+			// ->
+			// movl -4(%rbp), %r10d
+			// cmpl %r10d, -8(%rbp)
+
+			moveToR10 := Instruction{
+				kind: INS_MOV,
+				data: &Mov{
+					a: cmp.a,
+					b: Operand{kind: OPERAND_REG_R10},
+				},
+			}
+
+			cmpl := Instruction{
+				kind: INS_CMP,
+				data: &Cmp{
+					a: Operand{kind: OPERAND_REG_R10},
+					b: cmp.b,
+				},
+			}
+
+			fixedInstructions = append(fixedInstructions, moveToR10, cmpl)
+		} else if cmp, ok := inst.data.(*Cmp); ok && cmp.b.kind == OPERAND_IMM {
+			moveConstant := Instruction{
+				kind: INS_MOV,
+				data: &Mov{
+					a: cmp.b,
+					b: Operand{kind: OPERAND_REG_R11},
+				},
+			}
+
+			cmpl := Instruction{
+				kind: INS_CMP,
+				data: &Cmp{
+					a: cmp.b,
+					b: Operand{kind: OPERAND_REG_R11},
+				},
+			}
+
+			fixedInstructions = append(fixedInstructions, moveConstant, cmpl)
 		} else {
 			fixedInstructions = append(fixedInstructions, inst)
 		}

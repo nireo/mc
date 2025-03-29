@@ -12,6 +12,7 @@ const (
 	IR_BIN_MUL
 	IR_BIN_DIV
 	IR_BIN_REMAINDER
+	IR_UNARY_NOT
 )
 
 func (op IrOperator) String() string {
