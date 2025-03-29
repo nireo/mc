@@ -17,15 +17,15 @@ const (
 	A_O_REMAINDER
 )
 
-type ConditionCode int
+type ConditionCode string
 
 const (
-	COND_E ConditionCode = iota
-	COND_NE
-	COND_G
-	COND_GE
-	COND_L
-	COND_LE
+	COND_E  ConditionCode = "e"
+	COND_NE ConditionCode = "ne"
+	COND_G  ConditionCode = "g"
+	COND_GE ConditionCode = "ge"
+	COND_L  ConditionCode = "l"
+	COND_LE ConditionCode = "ge"
 )
 
 func (o Operation) String() string {
@@ -221,35 +221,38 @@ func convertIrOperator(op IrOperator) Operation {
 func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 	switch ins.kind {
 	case IR_INSTRUCTION_RETURN:
+		retIr := ins.data.(*IrReturnInstruction)
 		*instructions = append(*instructions, Instruction{
 			kind: INS_MOV,
 			data: &Mov{
-				a: toOperand(ins.ret.val),
+				a: toOperand(retIr.val),
 				b: Operand{kind: OPERAND_REG_AX},
 			},
 		}, Instruction{kind: INS_RET})
 		return
 	case IR_INSTRUCTION_UNARY:
+		unaryIr := ins.data.(*IrUnaryInstruction)
 		*instructions = append(*instructions, Instruction{
 			kind: INS_MOV,
 			data: &Mov{
-				a: toOperand(ins.unary.src),
-				b: toOperand(ins.unary.dst),
+				a: toOperand(unaryIr.src),
+				b: toOperand(unaryIr.dst),
 			},
 		}, Instruction{
 			kind: INS_UNARY,
 			data: &UnaryInstruction{
-				op:      convertIrOperator(ins.unary.operator),
-				operand: toOperand(ins.unary.dst),
+				op:      convertIrOperator(unaryIr.operator),
+				operand: toOperand(unaryIr.dst),
 			},
 		})
 	case IR_INSTRUCTION_BINARY:
-		if ins.binary.operator == IR_BIN_DIV {
+		binaryIr := ins.data.(*IrBinaryInstruction)
+		if binaryIr.operator == IR_BIN_DIV {
 			*instructions = append(*instructions,
 				Instruction{
 					kind: INS_MOV,
 					data: &Mov{
-						a: toOperand(ins.binary.src1),
+						a: toOperand(binaryIr.src1),
 						b: Operand{kind: OPERAND_REG_AX},
 					},
 				},
@@ -257,37 +260,37 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 				Instruction{
 					kind: INS_IDIV,
 					data: &Idivl{
-						op: toOperand(ins.binary.src2),
+						op: toOperand(binaryIr.src2),
 					},
 				},
 				Instruction{
 					kind: INS_MOV,
 					data: &Mov{
 						a: Operand{kind: OPERAND_REG_AX},
-						b: toOperand(ins.binary.dst),
+						b: toOperand(binaryIr.dst),
 					},
 				},
 			)
-		} else if ins.binary.operator == IR_BIN_REMAINDER {
+		} else if binaryIr.operator == IR_BIN_REMAINDER {
 			*instructions = append(*instructions,
 				Instruction{
 					kind: INS_MOV,
 					data: &Mov{
-						a: toOperand(ins.binary.src1),
+						a: toOperand(binaryIr.src1),
 						b: Operand{kind: OPERAND_REG_AX},
 					},
 				},
 				Instruction{kind: INS_CDQ},
 				Instruction{
 					kind: INS_IDIV, data: &Idivl{
-						op: toOperand(ins.binary.src2),
+						op: toOperand(binaryIr.src2),
 					},
 				},
 				Instruction{
 					kind: INS_MOV,
 					data: &Mov{
 						a: Operand{kind: OPERAND_REG_DX},
-						b: toOperand(ins.binary.dst),
+						b: toOperand(binaryIr.dst),
 					},
 				},
 			)
@@ -295,15 +298,15 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 			*instructions = append(*instructions, Instruction{
 				kind: INS_MOV,
 				data: &Mov{
-					a: toOperand(ins.binary.src1),
-					b: toOperand(ins.binary.dst),
+					a: toOperand(binaryIr.src1),
+					b: toOperand(binaryIr.dst),
 				},
 			}, Instruction{
 				kind: INS_BINARY,
 				data: &BinaryInstruction{
-					op: convertIrOperator(ins.binary.operator),
-					a:  toOperand(ins.binary.src2),
-					b:  toOperand(ins.binary.dst),
+					op: convertIrOperator(binaryIr.operator),
+					a:  toOperand(binaryIr.src2),
+					b:  toOperand(binaryIr.dst),
 				},
 			})
 		}

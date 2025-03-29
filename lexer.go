@@ -36,6 +36,13 @@ const (
 	TOK_PERCENT
 	TOK_AND
 	TOK_OR
+	TOK_BANG
+	TOK_EQ
+	TOK_NEQ
+	TOK_LT
+	TOK_GT
+	TOK_LTEQ
+	TOK_GTEQ
 )
 
 // Pattern represents a regex pattern and its token constructor
@@ -72,6 +79,22 @@ func createRegexPatterns() []Pattern {
 			},
 		},
 		{
+			regex:     regexp.MustCompile(`^==`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_EQ, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^!=`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_NEQ, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^<=`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_LTEQ, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^>=`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_GTEQ, nil} },
+		},
+		{
 			regex:     regexp.MustCompile(`^--`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{DECREMENT, nil} },
 		},
@@ -90,6 +113,26 @@ func createRegexPatterns() []Pattern {
 		{
 			regex:     regexp.MustCompile(`^\}`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{CLOSE_BRACE, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^<`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_LT, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^>`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_GT, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^&&`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_AND, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^\|\|`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_OR, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^!`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_BANG, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\-`),

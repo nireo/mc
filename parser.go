@@ -36,6 +36,14 @@ var precedences = map[Token]int{
 	TOK_PERCENT:  50,
 	TOK_PLUS:     45,
 	MINUS:        45,
+	TOK_GT:       35,
+	TOK_LT:       35,
+	TOK_GTEQ:     35,
+	TOK_LTEQ:     35,
+	TOK_EQ:       30,
+	TOK_NEQ:      30,
+	TOK_AND:      10,
+	TOK_OR:       5,
 }
 
 // StatementKind represents different types of statements
@@ -113,7 +121,7 @@ func (p *Parser) parseFactor() *Expression {
 			kind: EXP_INTEGER,
 			data: tok.Value.(int64),
 		}
-	case TILDE, MINUS:
+	case TILDE, MINUS, TOK_BANG:
 		op := tok.Kind
 		innerExpr := p.parseFactor()
 		return &Expression{

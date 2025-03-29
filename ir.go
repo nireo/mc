@@ -122,20 +122,14 @@ type IrInstruction struct {
 	// memory that ir instructions take. This should be done for all instruction
 	// sets I don't know what I was thinking.
 
-	kind        IrInstructionKind
-	ret         *IrReturnInstruction
-	unary       *IrUnaryInstruction
-	binary      *IrBinaryInstruction
-	copy        *IrCopyInstruction
-	jumpNotZero *IrJumpIfNotZero
-	jumpIfZero  *IrJumpIfZero
-	str         string
+	kind IrInstructionKind
+	data any
 }
 
 func NewIrReturnInstruction(val *IrVal) *IrInstruction {
 	return &IrInstruction{
 		kind: IR_INSTRUCTION_RETURN,
-		ret: &IrReturnInstruction{
+		data: &IrReturnInstruction{
 			val: val,
 		},
 	}
@@ -148,25 +142,11 @@ func NewIrUnaryInstruction(operator IrOperator, src, dst *IrVal) *IrInstruction 
 
 	return &IrInstruction{
 		kind: IR_INSTRUCTION_UNARY,
-		unary: &IrUnaryInstruction{
+		data: &IrUnaryInstruction{
 			operator: operator,
 			src:      src,
 			dst:      dst,
 		},
-	}
-}
-
-func (i *IrInstruction) String() string {
-	switch i.kind {
-	case IR_INSTRUCTION_RETURN:
-		return fmt.Sprintf("return %s", i.ret.val.String())
-	case IR_INSTRUCTION_UNARY:
-		return fmt.Sprintf("%s = %s %s",
-			i.unary.dst.String(),
-			i.unary.operator.String(),
-			i.unary.src.String())
-	default:
-		return "unknown instruction"
 	}
 }
 
@@ -264,7 +244,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 		v1 := g.generateExpression(binExpr.lhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			jumpIfZero: &IrJumpIfZero{
+			data: &IrJumpIfZero{
 				condition: v1,
 				target:    falseLabel,
 			},
@@ -273,7 +253,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 		v2 := g.generateExpression(binExpr.rhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			jumpIfZero: &IrJumpIfZero{
+			data: &IrJumpIfZero{
 				condition: v2,
 				target:    falseLabel,
 			},
@@ -281,13 +261,13 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP,
-			str:  trueLabel,
+			data: trueLabel,
 		})
 	} else if binExpr.operator == TOK_OR {
 		v1 := g.generateExpression(binExpr.lhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
-			jumpNotZero: &IrJumpIfNotZero{
+			data: &IrJumpIfNotZero{
 				condition: v1,
 				target:    trueLabel,
 			},
@@ -296,7 +276,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 		v2 := g.generateExpression(binExpr.rhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
-			jumpNotZero: &IrJumpIfNotZero{
+			data: &IrJumpIfNotZero{
 				condition: v2,
 				target:    trueLabel,
 			},
@@ -305,12 +285,12 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_LABEL,
-		str:  falseLabel,
+		data: falseLabel,
 	})
 
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_COPY,
-		copy: &IrCopyInstruction{
+		data: &IrCopyInstruction{
 			src: NewIrConstant(0),
 			dst: resultVar,
 		},
@@ -318,17 +298,17 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_JUMP,
-		str:  endLabel,
+		data: endLabel,
 	})
 
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_LABEL,
-		str:  trueLabel,
+		data: trueLabel,
 	})
 
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_COPY,
-		copy: &IrCopyInstruction{
+		data: &IrCopyInstruction{
 			src: NewIrConstant(1),
 			dst: resultVar,
 		},
@@ -336,7 +316,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_LABEL,
-		str:  endLabel,
+		data: endLabel,
 	})
 
 	return resultVar
@@ -369,7 +349,7 @@ func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrIn
 
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_BINARY,
-		binary: &IrBinaryInstruction{
+		data: &IrBinaryInstruction{
 			operator: irOp,
 			src1:     v1,
 			src2:     v2,
