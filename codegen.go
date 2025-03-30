@@ -25,8 +25,17 @@ const (
 	COND_G  ConditionCode = "g"
 	COND_GE ConditionCode = "ge"
 	COND_L  ConditionCode = "l"
-	COND_LE ConditionCode = "ge"
+	COND_LE ConditionCode = "le"
 )
+
+var relToCondCode = map[IrOperator]ConditionCode{
+	IR_BIN_EQ:   COND_E,
+	IR_BIN_NEQ:  COND_NE,
+	IR_BIN_LT:   COND_L,
+	IR_BIN_GT:   COND_G,
+	IR_BIN_LTEQ: COND_LE,
+	IR_BIN_GTEQ: COND_GE,
+}
 
 func (o Operation) String() string {
 	switch o {
@@ -183,8 +192,8 @@ func (i Instruction) String() string {
 		cmp := i.data.(*Cmp)
 		return fmt.Sprintf("\tcmpl %s, %s", cmp.a, cmp.b)
 	case INS_JMP:
-		jmp := i.data.(string)
-		return fmt.Sprintf("\tjmp .L%s", jmp)
+		jmp := i.data.(*Jmp)
+		return fmt.Sprintf("\tjmp .L%s", jmp.identifier)
 	case INS_JMPCC:
 		jmpcc := i.data.(*JmpCC)
 		return fmt.Sprintf("\tj%s .L%s", jmpcc.condCode, jmpcc.identifier)
@@ -223,7 +232,7 @@ func convertIrOperator(op IrOperator) Operation {
 	case IR_BIN_ADD:
 		return A_O_ADD
 	case IR_BIN_REMAINDER:
-		return A_O_ADD
+		return A_O_REMAINDER
 	case IR_BIN_SUB:
 		return A_O_SUB
 	case IR_BIN_MUL:
@@ -334,6 +343,26 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 					},
 				},
 			)
+		} else if condCode, ok := relToCondCode[binaryIr.operator]; ok {
+			*instructions = append(*instructions, Instruction{
+				kind: INS_CMP,
+				data: &Cmp{
+					a: toOperand(binaryIr.src2),
+					b: toOperand(binaryIr.src1),
+				},
+			}, Instruction{
+				kind: INS_MOV,
+				data: &Mov{
+					a: Operand{kind: OPERAND_IMM, imm: 0},
+					b: toOperand(binaryIr.dst),
+				},
+			}, Instruction{
+				kind: INS_SETCC,
+				data: &SetCC{
+					condCode: condCode,
+					a:        toOperand(binaryIr.dst),
+				},
+			})
 		} else {
 			*instructions = append(*instructions, Instruction{
 				kind: INS_MOV,
@@ -631,7 +660,7 @@ func fixInstructions(insts *[]Instruction) {
 			cmpl := Instruction{
 				kind: INS_CMP,
 				data: &Cmp{
-					a: cmp.b,
+					a: cmp.a,
 					b: Operand{kind: OPERAND_REG_R11},
 				},
 			}

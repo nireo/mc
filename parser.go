@@ -146,7 +146,7 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 	left := p.parseFactor()
 
 	for {
-		if p.idx >= len(p.tokens)-1 {
+		if p.idx >= len(p.tokens) {
 			break
 		}
 
@@ -157,8 +157,8 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 		}
 
 		p.idx++
-
 		right := p.parseExpr(pred + 1)
+
 		left = &Expression{
 			kind: EXP_BINARY,
 			data: &BinaryExpr{

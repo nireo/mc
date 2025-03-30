@@ -13,6 +13,12 @@ const (
 	IR_BIN_DIV
 	IR_BIN_REMAINDER
 	IR_UNARY_NOT
+	IR_BIN_GT
+	IR_BIN_LT
+	IR_BIN_GTEQ
+	IR_BIN_LTEQ
+	IR_BIN_NEQ
+	IR_BIN_EQ
 )
 
 func (op IrOperator) String() string {
@@ -118,11 +124,6 @@ type IrJumpIfNotZero struct {
 }
 
 type IrInstruction struct {
-	// FIXME: would most likely result in clearner code if this was just a
-	// instruction any and then switch case this also will reduce the amount
-	// memory that ir instructions take. This should be done for all instruction
-	// sets I don't know what I was thinking.
-
 	kind IrInstructionKind
 	data any
 }
@@ -218,6 +219,8 @@ func (g *IrGenerator) generateUnary(unaryExpr *UnaryExpr, instructions *[]*IrIns
 		irOp = IR_UNARY_NEGATE
 	case TILDE:
 		irOp = IR_UNARY_COMPLEMENT
+	case TOK_BANG:
+		irOp = IR_UNARY_NOT
 	default:
 		panic("unsupported unary operator")
 	}
@@ -239,9 +242,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 	resultVar := g.newTempVar()
 
 	if binExpr.operator == TOK_AND {
-		// with the && operation if the first part evaluates to false we can
-		// short circuit
-
+		// For && operation: short-circuit if the first part is false
 		v1 := g.generateExpression(binExpr.lhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
@@ -251,6 +252,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
+		// Only evaluate the second part if the first part is true
 		v2 := g.generateExpression(binExpr.rhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
@@ -260,11 +262,13 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
+		// If both are true, jump to the true block
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP,
 			data: trueLabel,
 		})
 	} else if binExpr.operator == TOK_OR {
+		// For || operation: short-circuit if the first part is true
 		v1 := g.generateExpression(binExpr.lhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
@@ -274,6 +278,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
+		// Only evaluate the second part if the first part is false
 		v2 := g.generateExpression(binExpr.rhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
@@ -282,8 +287,15 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 				target:    trueLabel,
 			},
 		})
+
+		// If both are false, fall through to the false block
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP,
+			data: falseLabel,
+		})
 	}
 
+	// False label (result = 0)
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_LABEL,
 		data: falseLabel,
@@ -302,6 +314,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 		data: endLabel,
 	})
 
+	// True label (result = 1)
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_LABEL,
 		data: trueLabel,
@@ -315,6 +328,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 		},
 	})
 
+	// End label
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_LABEL,
 		data: endLabel,
@@ -344,8 +358,20 @@ func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrIn
 		irOp = IR_BIN_DIV
 	case TOK_PERCENT:
 		irOp = IR_BIN_REMAINDER
+	case TOK_GT:
+		irOp = IR_BIN_GT
+	case TOK_LT:
+		irOp = IR_BIN_LT
+	case TOK_GTEQ:
+		irOp = IR_BIN_GTEQ
+	case TOK_LTEQ:
+		irOp = IR_BIN_LTEQ
+	case TOK_EQ:
+		irOp = IR_BIN_EQ
+	case TOK_NEQ:
+		irOp = IR_BIN_NEQ
 	default:
-		panic("unsupported unary operator")
+		panic("unsupported binary operator")
 	}
 
 	*instructions = append(*instructions, &IrInstruction{
@@ -381,7 +407,7 @@ func (g *IrGenerator) newTempVar() *IrVal {
 }
 
 func (g *IrGenerator) newLabel() string {
-	labelName := fmt.Sprintf("L%d", g.labelCount)
+	labelName := fmt.Sprintf("%d", g.labelCount)
 	g.labelCount++
 
 	return labelName

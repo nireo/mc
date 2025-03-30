@@ -124,7 +124,7 @@ func runParser(inputFile string) error {
 	return nil
 }
 
-func compile(inputFile, outputFile string, shouldPrint bool) error {
+func compile(inputFile, outputFile string) error {
 	content, err := os.ReadFile(inputFile)
 	if err != nil {
 		return fmt.Errorf("cannot read file: %v", err)
