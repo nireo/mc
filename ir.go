@@ -225,9 +225,7 @@ func (g *IrGenerator) generateUnary(unaryExpr *UnaryExpr, instructions *[]*IrIns
 		panic("unsupported unary operator")
 	}
 
-	*instructions = append(*instructions,
-		NewIrUnaryInstruction(irOp, innerVal, resultVar))
-
+	*instructions = append(*instructions, NewIrUnaryInstruction(irOp, innerVal, resultVar))
 	return resultVar
 }
 
@@ -236,14 +234,12 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 	instructions *[]*IrInstruction,
 ) *IrVal {
 	falseLabel := g.newLabel()
-	trueLabel := g.newLabel()
 	endLabel := g.newLabel()
-
 	resultVar := g.newTempVar()
 
 	if binExpr.operator == TOK_AND {
-		// For && operation: short-circuit if the first part is false
 		v1 := g.generateExpression(binExpr.lhs, instructions)
+
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
 			data: &IrJumpIfZero{
@@ -252,8 +248,8 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		// Only evaluate the second part if the first part is true
 		v2 := g.generateExpression(binExpr.rhs, instructions)
+
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
 			data: &IrJumpIfZero{
@@ -262,77 +258,98 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		// If both are true, jump to the true block
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_COPY,
+			data: &IrCopyInstruction{
+				src: NewIrConstant(1),
+				dst: resultVar,
+			},
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP,
+			data: endLabel,
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_LABEL,
+			data: falseLabel,
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_COPY,
+			data: &IrCopyInstruction{
+				src: NewIrConstant(0),
+				dst: resultVar,
+			},
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_LABEL,
+			data: endLabel,
+		})
+	} else if binExpr.operator == TOK_OR {
+		trueLabel := g.newLabel()
+		v1 := g.generateExpression(binExpr.lhs, instructions)
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
+			data: &IrJumpIfNotZero{
+				condition: v1,
+				target:    trueLabel,
+			},
+		})
+		v2 := g.generateExpression(binExpr.rhs, instructions)
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+			data: &IrJumpIfZero{
+				condition: v2,
+				target:    falseLabel,
+			},
+		})
+
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP,
 			data: trueLabel,
 		})
-	} else if binExpr.operator == TOK_OR {
-		// For || operation: short-circuit if the first part is true
-		v1 := g.generateExpression(binExpr.lhs, instructions)
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
-			data: &IrJumpIfNotZero{
-				condition: v1,
-				target:    trueLabel,
-			},
-		})
 
-		// Only evaluate the second part if the first part is false
-		v2 := g.generateExpression(binExpr.rhs, instructions)
 		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
-			data: &IrJumpIfNotZero{
-				condition: v2,
-				target:    trueLabel,
-			},
-		})
-
-		// If both are false, fall through to the false block
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP,
+			kind: IR_INSTRUCTION_LABEL,
 			data: falseLabel,
 		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_COPY,
+			data: &IrCopyInstruction{
+				src: NewIrConstant(0),
+				dst: resultVar,
+			},
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP,
+			data: endLabel,
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_LABEL,
+			data: trueLabel,
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_COPY,
+			data: &IrCopyInstruction{
+				src: NewIrConstant(1),
+				dst: resultVar,
+			},
+		})
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_LABEL,
+			data: endLabel,
+		})
 	}
-
-	// False label (result = 0)
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: falseLabel,
-	})
-
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_COPY,
-		data: &IrCopyInstruction{
-			src: NewIrConstant(0),
-			dst: resultVar,
-		},
-	})
-
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP,
-		data: endLabel,
-	})
-
-	// True label (result = 1)
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: trueLabel,
-	})
-
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_COPY,
-		data: &IrCopyInstruction{
-			src: NewIrConstant(1),
-			dst: resultVar,
-		},
-	})
-
-	// End label
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: endLabel,
-	})
 
 	return resultVar
 }

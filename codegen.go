@@ -206,10 +206,10 @@ func (i Instruction) String() string {
 
 		return fmt.Sprintf("\tset%s %s", setcc.condCode, setcc.a)
 	case INS_LABEL:
-		return fmt.Sprintf(".L%s", i.data.(string))
+		return fmt.Sprintf(".L%s:", i.data.(string))
 	}
 
-	return ""
+	panic("unsupported isntructions")
 }
 
 func toOperand(val *IrVal) Operand {
