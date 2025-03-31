@@ -194,7 +194,15 @@ func (g *IrGenerator) Generate(program *Program) *IrProgram {
 
 func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 	instructions := []*IrInstruction{}
-	g.generateStatement(fnDef.statement, &instructions)
+
+	for _, block := range fnDef.body {
+		if block.kind == BLOCK_KIND_DECL {
+			// TODO: implement this
+			continue
+		}
+
+		g.generateStatement(block.data.(*Statement), &instructions)
+	}
 
 	return NewIrFunction(fnDef.identifier, instructions)
 }

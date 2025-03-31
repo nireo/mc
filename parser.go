@@ -11,6 +11,8 @@ const (
 	EXP_UNARY ExpressionKind = iota
 	EXP_INTEGER
 	EXP_BINARY
+	EXP_ASSIGN
+	EXP_VAR
 )
 
 type UnaryExpr struct {
@@ -22,6 +24,11 @@ type BinaryExpr struct {
 	operator Token
 	lhs      *Expression
 	rhs      *Expression
+}
+
+type AssignExpr struct {
+	lvalue *Expression
+	avalue *Expression
 }
 
 // Expression represents a C expression
@@ -44,6 +51,7 @@ var precedences = map[Token]int{
 	TOK_NEQ:      30,
 	TOK_AND:      10,
 	TOK_OR:       5,
+	TOK_ASSIGN:   1,
 }
 
 // StatementKind represents different types of statements
@@ -52,16 +60,19 @@ type StatementKind int
 const (
 	STMT_RETURN StatementKind = iota
 	STMT_IF
+	STMT_EXPR
+	STMT_NULL
+)
+
+type BlockKind int
+
+const (
+	BLOCK_KIND_STMT BlockKind = iota
+	BLOCK_KIND_DECL
 )
 
 type ReturnStatement struct {
 	expr *Expression
-}
-
-type IfStatement struct {
-	cond      *Expression
-	then      *Statement
-	otherwise *Statement
 }
 
 // Statement represents a C expression
@@ -70,9 +81,19 @@ type Statement struct {
 	data any
 }
 
+type Declaration struct {
+	identifier string
+	init       *Expression
+}
+
+type Block struct {
+	kind BlockKind
+	data any
+}
+
 type FunctionDef struct {
 	identifier string
-	statement  *Statement
+	body       []Block
 }
 
 type Program struct {
@@ -99,15 +120,28 @@ func (p *Parser) expect(expectedToken Token) {
 }
 
 func (p *Parser) parseStatement() *Statement {
-	p.expect(RETURN_KEYWORD)
+	if p.tokens[p.idx].Kind == RETURN_KEYWORD {
+		p.expect(RETURN_KEYWORD)
+		expr := p.parseExpr(0)
+		p.expect(SEMICOLON)
+
+		return &Statement{
+			kind: STMT_RETURN,
+			data: &ReturnStatement{
+				expr: expr,
+			},
+		}
+	} else if p.tokens[p.idx].Kind == SEMICOLON {
+		return &Statement{
+			kind: STMT_NULL,
+		}
+	}
+
 	expr := p.parseExpr(0)
 	p.expect(SEMICOLON)
-
 	return &Statement{
-		kind: STMT_RETURN,
-		data: &ReturnStatement{
-			expr: expr,
-		},
+		kind: STMT_EXPR,
+		data: expr,
 	}
 }
 
@@ -116,6 +150,11 @@ func (p *Parser) parseFactor() *Expression {
 	p.idx += 1
 
 	switch tok.Kind {
+	case TOK_IDENT:
+		return &Expression{
+			kind: EXP_VAR,
+			data: tok.Value.(string),
+		}
 	case TOK_CONSTANT:
 		return &Expression{
 			kind: EXP_INTEGER,
@@ -156,20 +195,50 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 			break
 		}
 
-		p.idx++
-		right := p.parseExpr(pred + 1)
+		if next == TOK_ASSIGN {
+			p.idx++ // skip the assign symbol
+			right := p.parseExpr(pred)
+			left = &Expression{
+				kind: EXP_ASSIGN,
+				data: &AssignExpr{
+					lvalue: left,
+					avalue: right,
+				},
+			}
+		} else {
+			p.idx++
+			right := p.parseExpr(pred + 1)
 
-		left = &Expression{
-			kind: EXP_BINARY,
-			data: &BinaryExpr{
-				operator: next,
-				lhs:      left,
-				rhs:      right,
-			},
+			left = &Expression{
+				kind: EXP_BINARY,
+				data: &BinaryExpr{
+					operator: next,
+					lhs:      left,
+					rhs:      right,
+				},
+			}
 		}
 	}
 
 	return left
+}
+
+func (p *Parser) parseDecl() *Declaration {
+	p.expect(INT_KEYWORD)
+	ident := p.tokens[p.idx].Value.(string)
+	p.idx += 1
+	var expr *Expression
+
+	if p.tokens[p.idx].Kind == TOK_ASSIGN {
+		p.idx += 1
+		expr = p.parseExpr(0)
+		p.expect(SEMICOLON)
+	}
+
+	return &Declaration{
+		identifier: ident,
+		init:       expr,
+	}
 }
 
 func (p *Parser) parseFunctionDef() *FunctionDef {
@@ -183,9 +252,30 @@ func (p *Parser) parseFunctionDef() *FunctionDef {
 	p.expect(CLOSE_PAREN)
 	p.expect(OPEN_BRACE)
 
-	stmt := p.parseStatement()
+	body := make([]Block, 0)
+	for {
+		currTok := p.tokens[p.idx].Kind
+		if currTok == CLOSE_BRACE {
+			break
+		}
 
-	return &FunctionDef{identifier: identifier, statement: stmt}
+		if currTok == INT_KEYWORD {
+			decl := p.parseDecl()
+			body = append(body, Block{
+				kind: BLOCK_KIND_DECL,
+				data: decl,
+			})
+		} else {
+			stmt := p.parseStatement()
+			body = append(body, Block{
+				kind: BLOCK_KIND_STMT,
+				data: stmt,
+			})
+		}
+	}
+	p.expect(CLOSE_BRACE)
+
+	return &FunctionDef{identifier: identifier, body: body}
 }
 
 func (p *Parser) Parse() *Program {

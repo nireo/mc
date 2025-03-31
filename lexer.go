@@ -43,6 +43,7 @@ const (
 	TOK_GT
 	TOK_LTEQ
 	TOK_GTEQ
+	TOK_ASSIGN
 )
 
 // Pattern represents a regex pattern and its token constructor
@@ -125,6 +126,10 @@ func createRegexPatterns() []Pattern {
 		{
 			regex:     regexp.MustCompile(`^&&`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_AND, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^=`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_ASSIGN, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\|\|`),
