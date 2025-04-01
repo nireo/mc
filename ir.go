@@ -186,20 +186,34 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 
 	for _, block := range fnDef.body {
 		if block.kind == BLOCK_KIND_DECL {
-			// TODO: implement this
+			// we only need to generate something if the declaration contains a initializer
+			decl := block.data.(*Declaration)
+			if decl.init != nil {
+				g.generateExpression(&Expression{
+					kind: EXP_ASSIGN,
+					data: &AssignExpr{
+						lvalue: &Expression{
+							kind: EXP_VAR,
+							data: decl.identifier,
+						},
+						avalue: decl.init,
+					},
+				}, &instructions)
+			}
+
 			continue
 		}
 
 		g.generateStatement(block.data.(*Statement), &instructions)
 	}
 
+	// ensure that the main function has a return statement
 	if fnDef.identifier == "main" {
 		addRet := false
 		if len(fnDef.body) == 0 {
 			addRet = true
 		}
 
-		// ensure that the main function has a return statement
 		if len(fnDef.body) > 0 && fnDef.body[len(fnDef.body)-1].kind != BLOCK_KIND_STMT {
 			addRet = true
 		}
