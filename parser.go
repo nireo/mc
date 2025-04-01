@@ -233,6 +233,8 @@ func (p *Parser) parseDecl() *Declaration {
 		p.idx += 1
 		expr = p.parseExpr(0)
 		p.expect(SEMICOLON)
+	} else {
+		p.expect(SEMICOLON)
 	}
 
 	return &Declaration{

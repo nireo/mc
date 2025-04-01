@@ -212,6 +212,8 @@ func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInst
 	case STMT_RETURN:
 		val := g.generateExpression(stmt.data.(*ReturnStatement).expr, instructions)
 		*instructions = append(*instructions, NewIrReturnInstruction(val))
+	case STMT_EXPR:
+		g.generateExpression(stmt.data.(*Expression), instructions)
 	case STMT_IF:
 		panic("if statements not implemented in IR generator")
 	}
@@ -412,7 +414,27 @@ func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrIn
 	return dst
 }
 
+func (g *IrGenerator) generateAssign(assign *AssignExpr, instructions *[]*IrInstruction) *IrVal {
+	if assign.lvalue.kind != EXP_VAR {
+		panic("assignment operations left hand side needs to be a variable")
+	}
+
+	res := g.generateExpression(assign.avalue, instructions)
+
+	irVar := NewIrVar(assign.lvalue.data.(string))
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_COPY,
+		data: &IrCopyInstruction{
+			src: res,
+			dst: irVar,
+		},
+	})
+
+	return irVar
+}
+
 func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrInstruction) *IrVal {
+	fmt.Println("generating expression of kind", expr.kind)
 	switch expr.kind {
 	case EXP_INTEGER:
 		return NewIrConstant(expr.data.(int64))
@@ -420,13 +442,17 @@ func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrIn
 		return g.generateUnary(expr.data.(*UnaryExpr), instructions)
 	case EXP_BINARY:
 		return g.generateBinaryExpr(expr.data.(*BinaryExpr), instructions)
+	case EXP_ASSIGN:
+		return g.generateAssign(expr.data.(*AssignExpr), instructions)
+	case EXP_VAR:
+		return NewIrVar(expr.data.(string))
 	default:
 		panic("unsupported expression kind in IR generator")
 	}
 }
 
 func (g *IrGenerator) newTempVar() *IrVal {
-	varName := fmt.Sprintf("t%d", g.tempVarCounter)
+	varName := fmt.Sprintf("$t%d", g.tempVarCounter)
 	g.tempVarCounter++
 	return NewIrVar(varName)
 }

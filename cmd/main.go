@@ -15,6 +15,7 @@ func main() {
 	shouldLex := flag.Bool("lex", false, "Run the lexer, but stop before parsing")
 	shouldParse := flag.Bool("parse", false, "Run the lexer and parser, but stop before assembly generation")
 	shouldCodegen := flag.Bool("codegen", false, "Perform lexing, parsing, and assembly generation, but stop before code emission")
+	shouldValidate := flag.Bool("validate", false, "Perform lexing, parsing but stop before IR generation")
 	shouldEmitAssembly := flag.Bool("S", false, "Emit an assembly file, but don't assemble or link it")
 
 	flag.Parse()
@@ -64,6 +65,15 @@ func main() {
 		os.Exit(0)
 	}
 
+	if *shouldValidate {
+		if err := runSemantic(preprocessedFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Parser error: %v\n", err)
+			os.Exit(1)
+		}
+		cleanup(preprocessedFile)
+		os.Exit(0)
+	}
+
 	if err := compile(preprocessedFile, assemblyFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Compilation error: %v\n", err)
 		cleanup(preprocessedFile)
@@ -77,7 +87,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *shouldEmitAssembly || *shouldEmitAssembly {
+	if *shouldEmitAssembly {
 		os.Exit(0)
 	}
 
@@ -105,6 +115,24 @@ func runLexer(inputFile string) error {
 
 	_, err = mc.Tokenize(string(content))
 	return err
+}
+
+func runSemantic(inputFile string) error {
+	content, err := os.ReadFile(inputFile)
+	if err != nil {
+		return fmt.Errorf("cannot read file: %v", err)
+	}
+
+	tokenized, err := mc.Tokenize(string(content))
+	if err != nil {
+		return err
+	}
+
+	p := mc.NewParser(tokenized)
+	prog := p.Parse()
+	mc.AnalyzeSemantic(prog)
+
+	return nil
 }
 
 func runParser(inputFile string) error {
@@ -137,6 +165,7 @@ func compile(inputFile, outputFile string) error {
 
 	p := mc.NewParser(tokenized)
 	prog := p.Parse()
+	mc.AnalyzeSemantic(prog)
 
 	ir := mc.NewIrGenerator()
 	irProg := ir.Generate(prog)
