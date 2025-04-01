@@ -21,17 +21,6 @@ const (
 	IR_BIN_EQ
 )
 
-func (op IrOperator) String() string {
-	switch op {
-	case IR_UNARY_COMPLEMENT:
-		return "~"
-	case IR_UNARY_NEGATE:
-		return "-"
-	default:
-		panic("non supported unary op")
-	}
-}
-
 type IrValueKind int
 
 const (
@@ -202,6 +191,34 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 		}
 
 		g.generateStatement(block.data.(*Statement), &instructions)
+	}
+
+	if fnDef.identifier == "main" {
+		addRet := false
+		if len(fnDef.body) == 0 {
+			addRet = true
+		}
+
+		// ensure that the main function has a return statement
+		if len(fnDef.body) > 0 && fnDef.body[len(fnDef.body)-1].kind != BLOCK_KIND_STMT {
+			addRet = true
+		}
+
+		if len(fnDef.body) > 0 && fnDef.body[len(fnDef.body)-1].data.(*Statement).kind != STMT_RETURN {
+			addRet = true
+		}
+
+		if addRet {
+			g.generateStatement(&Statement{
+				kind: STMT_RETURN,
+				data: &ReturnStatement{
+					expr: &Expression{
+						kind: EXP_INTEGER,
+						data: int64(0),
+					},
+				},
+			}, &instructions)
+		}
 	}
 
 	return NewIrFunction(fnDef.identifier, instructions)
