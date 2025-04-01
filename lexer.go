@@ -44,6 +44,10 @@ const (
 	TOK_LTEQ
 	TOK_GTEQ
 	TOK_ASSIGN
+	TOK_IF
+	TOK_ELSE
+	TOK_QUESTION
+	TOK_COLON
 )
 
 // Pattern represents a regex pattern and its token constructor
@@ -65,6 +69,14 @@ func createRegexPatterns() []Pattern {
 		{
 			regex:     regexp.MustCompile(`^return\b`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{RETURN_KEYWORD, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^if\b`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_IF, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^else\b`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_ELSE, nil} },
 		},
 		{
 			regex: regexp.MustCompile(`^[0-9]+\b`),
@@ -122,6 +134,14 @@ func createRegexPatterns() []Pattern {
 		{
 			regex:     regexp.MustCompile(`^>`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_GT, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^\?`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_QUESTION, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^:`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_COLON, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^&&`),

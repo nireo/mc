@@ -48,6 +48,11 @@ func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]st
 
 		s.resolveExpr(assign.lvalue, variables)
 		s.resolveExpr(assign.avalue, variables)
+	case EXP_COND:
+		cond := expr.data.(*CondExpr)
+		s.resolveExpr(cond.left, variables)
+		s.resolveExpr(cond.middle, variables)
+		s.resolveExpr(cond.right, variables)
 	case EXP_VAR:
 		name := expr.data.(string)
 		if uniqueName, ok := variables[name]; ok {
@@ -73,6 +78,11 @@ func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[strin
 	case STMT_EXPR:
 		e := stmt.data.(*Expression)
 		s.resolveExpr(e, variables)
+	case STMT_IF:
+		ifs := stmt.data.(*IfStatement)
+		s.resolveExpr(ifs.cond, variables)
+		s.resolveStatement(ifs.then, variables)
+		s.resolveStatement(ifs.otherwise, variables)
 	}
 }
 

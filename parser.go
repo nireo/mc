@@ -13,7 +13,14 @@ const (
 	EXP_BINARY
 	EXP_ASSIGN
 	EXP_VAR
+	EXP_COND
 )
+
+type CondExpr struct {
+	left   *Expression
+	middle *Expression
+	right  *Expression
+}
 
 type UnaryExpr struct {
 	operator Token
@@ -51,6 +58,7 @@ var precedences = map[Token]int{
 	TOK_NEQ:      30,
 	TOK_AND:      10,
 	TOK_OR:       5,
+	TOK_QUESTION: 3,
 	TOK_ASSIGN:   1,
 }
 
@@ -73,6 +81,12 @@ const (
 
 type ReturnStatement struct {
 	expr *Expression
+}
+
+type IfStatement struct {
+	cond      *Expression
+	then      *Statement
+	otherwise *Statement
 }
 
 // Statement represents a C expression
@@ -119,6 +133,29 @@ func (p *Parser) expect(expectedToken Token) {
 	p.idx += 1
 }
 
+func (p *Parser) parseIfStatement() *Statement {
+	p.expect(TOK_IF)
+	p.expect(OPEN_PAREN)
+	cond := p.parseExpr(0)
+	p.expect(CLOSE_PAREN)
+	then := p.parseStatement()
+
+	var otherwise *Statement
+	if p.tokens[p.idx].Kind == TOK_ELSE {
+		p.idx += 1
+		otherwise = p.parseStatement()
+	}
+
+	return &Statement{
+		kind: STMT_IF,
+		data: &IfStatement{
+			cond:      cond,
+			then:      then,
+			otherwise: otherwise,
+		},
+	}
+}
+
 func (p *Parser) parseStatement() *Statement {
 	if p.tokens[p.idx].Kind == RETURN_KEYWORD {
 		p.expect(RETURN_KEYWORD)
@@ -131,6 +168,8 @@ func (p *Parser) parseStatement() *Statement {
 				expr: expr,
 			},
 		}
+	} else if p.tokens[p.idx].Kind == TOK_IF {
+		return p.parseIfStatement()
 	} else if p.tokens[p.idx].Kind == SEMICOLON {
 		return &Statement{
 			kind: STMT_NULL,
@@ -181,6 +220,14 @@ func (p *Parser) parseFactor() *Expression {
 
 }
 
+func (p *Parser) parseConditionalMiddle() *Expression {
+	p.expect(TOK_QUESTION)
+	expr := p.parseExpr(0)
+	p.expect(TOK_COLON)
+
+	return expr
+}
+
 func (p *Parser) parseExpr(minPrec int) *Expression {
 	left := p.parseFactor()
 
@@ -203,6 +250,17 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 				data: &AssignExpr{
 					lvalue: left,
 					avalue: right,
+				},
+			}
+		} else if next == TOK_QUESTION {
+			middle := p.parseConditionalMiddle()
+			right := p.parseExpr(pred)
+			left = &Expression{
+				kind: EXP_COND,
+				data: &CondExpr{
+					left,
+					middle,
+					right,
 				},
 			}
 		} else {
