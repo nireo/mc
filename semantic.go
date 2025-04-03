@@ -82,20 +82,29 @@ func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[strin
 		ifs := stmt.data.(*IfStatement)
 		s.resolveExpr(ifs.cond, variables)
 		s.resolveStatement(ifs.then, variables)
-		s.resolveStatement(ifs.otherwise, variables)
+
+		if ifs.otherwise != nil {
+			s.resolveStatement(ifs.otherwise, variables)
+		}
+	case STMT_COMPOUND:
+		comp := stmt.data.(*Compound)
+		s.resolveBlock(comp.block, variables)
+	}
+}
+
+func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]string) {
+	for _, item := range block.items {
+		if item.kind == BLOCK_KIND_STMT {
+			s.resolveStatement(item.data.(*Statement), variables)
+		} else if item.kind == BLOCK_KIND_DECL {
+			s.resolveDecl(item.data.(*Declaration), variables)
+		}
 	}
 }
 
 func (s *SemanticAnalyzer) resolveFunctionDef(fnDef *FunctionDef) {
 	variables := make(map[string]string)
-
-	for _, block := range fnDef.body {
-		if block.kind == BLOCK_KIND_STMT {
-			s.resolveStatement(block.data.(*Statement), variables)
-		} else if block.kind == BLOCK_KIND_DECL {
-			s.resolveDecl(block.data.(*Declaration), variables)
-		}
-	}
+	s.resolveBlock(fnDef.body, variables)
 }
 
 func AnalyzeSemantic(prog *Program) {

@@ -184,7 +184,7 @@ func (g *IrGenerator) Generate(program *Program) *IrProgram {
 func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 	instructions := []*IrInstruction{}
 
-	for _, block := range fnDef.body {
+	for _, block := range fnDef.body.items {
 		if block.kind == BLOCK_KIND_DECL {
 			// we only need to generate something if the declaration contains a initializer
 			decl := block.data.(*Declaration)
@@ -210,15 +210,15 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 	// ensure that the main function has a return statement
 	if fnDef.identifier == "main" {
 		addRet := false
-		if len(fnDef.body) == 0 {
+		if len(fnDef.body.items) == 0 {
 			addRet = true
 		}
 
-		if len(fnDef.body) > 0 && fnDef.body[len(fnDef.body)-1].kind != BLOCK_KIND_STMT {
+		if len(fnDef.body.items) > 0 && fnDef.body.items[len(fnDef.body.items)-1].kind != BLOCK_KIND_STMT {
 			addRet = true
 		}
 
-		if len(fnDef.body) > 0 && fnDef.body[len(fnDef.body)-1].data.(*Statement).kind != STMT_RETURN {
+		if len(fnDef.body.items) > 0 && fnDef.body.items[len(fnDef.body.items)-1].data.(*Statement).kind != STMT_RETURN {
 			addRet = true
 		}
 
@@ -238,6 +238,52 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 	return NewIrFunction(fnDef.identifier, instructions)
 }
 
+func (g *IrGenerator) generateIfStatement(ifst *IfStatement, instructions *[]*IrInstruction) {
+	c := g.generateExpression(ifst.cond, instructions)
+	if ifst.otherwise == nil {
+		endLabel := g.newLabel()
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+			data: &IrJumpIfZero{
+				condition: c,
+				target:    endLabel,
+			},
+		})
+
+		g.generateStatement(ifst.then, instructions)
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_LABEL,
+			data: endLabel,
+		})
+	} else {
+		endLabel := g.newLabel()
+		elseLabel := g.newLabel()
+
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+			data: &IrJumpIfZero{
+				condition: c,
+				target:    elseLabel,
+			},
+		})
+
+		g.generateStatement(ifst.then, instructions)
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP,
+			data: endLabel,
+		}, &IrInstruction{
+			kind: IR_INSTRUCTION_LABEL,
+			data: elseLabel,
+		})
+
+		g.generateStatement(ifst.otherwise, instructions)
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_LABEL,
+			data: endLabel,
+		})
+	}
+}
+
 func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInstruction) {
 	switch stmt.kind {
 	case STMT_RETURN:
@@ -246,7 +292,7 @@ func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInst
 	case STMT_EXPR:
 		g.generateExpression(stmt.data.(*Expression), instructions)
 	case STMT_IF:
-		panic("if statements not implemented in IR generator")
+		g.generateIfStatement(stmt.data.(*IfStatement), instructions)
 	}
 }
 
@@ -395,6 +441,51 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 	return resultVar
 }
 
+func (g *IrGenerator) generateConditionalExpr(expr *CondExpr, instructions *[]*IrInstruction) *IrVal {
+	cond := g.generateExpression(expr.left, instructions)
+	e2Label := g.newLabel()
+	endLabel := g.newLabel()
+
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+		data: &IrJumpIfZero{
+			target:    e2Label,
+			condition: cond,
+		},
+	})
+
+	v1 := g.generateExpression(expr.middle, instructions)
+
+	res := g.newTempVar()
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_COPY,
+		data: &IrCopyInstruction{
+			src: v1,
+			dst: res,
+		},
+	}, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP,
+		data: endLabel,
+	}, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: e2Label,
+	})
+
+	v2 := g.generateExpression(expr.right, instructions)
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_COPY,
+		data: &IrCopyInstruction{
+			src: v2,
+			dst: res,
+		},
+	}, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: endLabel,
+	})
+
+	return res
+}
+
 func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrInstruction) *IrVal {
 	if expr.operator == TOK_AND || expr.operator == TOK_OR {
 		return g.generateLogicalBinaryExpr(expr, instructions)
@@ -477,6 +568,8 @@ func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrIn
 		return g.generateAssign(expr.data.(*AssignExpr), instructions)
 	case EXP_VAR:
 		return NewIrVar(expr.data.(string))
+	case EXP_COND:
+		return g.generateConditionalExpr(expr.data.(*CondExpr), instructions)
 	default:
 		panic("unsupported expression kind in IR generator")
 	}

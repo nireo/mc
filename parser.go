@@ -70,6 +70,7 @@ const (
 	STMT_IF
 	STMT_EXPR
 	STMT_NULL
+	STMT_COMPOUND
 )
 
 type BlockKind int
@@ -100,14 +101,22 @@ type Declaration struct {
 	init       *Expression
 }
 
-type Block struct {
+type BlockItem struct {
 	kind BlockKind
 	data any
 }
 
+type Block struct {
+	items []BlockItem
+}
+
 type FunctionDef struct {
 	identifier string
-	body       []Block
+	body       *Block
+}
+
+type Compound struct {
+	block *Block
 }
 
 type Program struct {
@@ -142,6 +151,7 @@ func (p *Parser) parseIfStatement() *Statement {
 
 	var otherwise *Statement
 	if p.tokens[p.idx].Kind == TOK_ELSE {
+		fmt.Println("parsing else")
 		p.idx += 1
 		otherwise = p.parseStatement()
 	}
@@ -171,6 +181,7 @@ func (p *Parser) parseStatement() *Statement {
 	} else if p.tokens[p.idx].Kind == TOK_IF {
 		return p.parseIfStatement()
 	} else if p.tokens[p.idx].Kind == SEMICOLON {
+		p.idx += 1
 		return &Statement{
 			kind: STMT_NULL,
 		}
@@ -301,6 +312,47 @@ func (p *Parser) parseDecl() *Declaration {
 	}
 }
 
+func (p *Parser) parseBlock() *Block {
+	body := make([]BlockItem, 0)
+	for {
+		currTok := p.tokens[p.idx].Kind
+		if currTok == CLOSE_BRACE {
+			break
+		}
+
+		if currTok == INT_KEYWORD {
+			decl := p.parseDecl()
+			body = append(body, BlockItem{
+				kind: BLOCK_KIND_DECL,
+				data: decl,
+			})
+		} else if currTok == OPEN_BRACE {
+			p.idx += 1
+			block := p.parseBlock()
+			body = append(body, BlockItem{
+				kind: BLOCK_KIND_STMT,
+				data: &Statement{
+					kind: STMT_COMPOUND,
+					data: &Compound{
+						block: block,
+					},
+				},
+			})
+		} else {
+			stmt := p.parseStatement()
+			body = append(body, BlockItem{
+				kind: BLOCK_KIND_STMT,
+				data: stmt,
+			})
+		}
+	}
+	p.expect(CLOSE_BRACE)
+
+	return &Block{
+		items: body,
+	}
+}
+
 func (p *Parser) parseFunctionDef() *FunctionDef {
 	p.expect(INT_KEYWORD)
 
@@ -312,28 +364,7 @@ func (p *Parser) parseFunctionDef() *FunctionDef {
 	p.expect(CLOSE_PAREN)
 	p.expect(OPEN_BRACE)
 
-	body := make([]Block, 0)
-	for {
-		currTok := p.tokens[p.idx].Kind
-		if currTok == CLOSE_BRACE {
-			break
-		}
-
-		if currTok == INT_KEYWORD {
-			decl := p.parseDecl()
-			body = append(body, Block{
-				kind: BLOCK_KIND_DECL,
-				data: decl,
-			})
-		} else {
-			stmt := p.parseStatement()
-			body = append(body, Block{
-				kind: BLOCK_KIND_STMT,
-				data: stmt,
-			})
-		}
-	}
-	p.expect(CLOSE_BRACE)
+	body := p.parseBlock()
 
 	return &FunctionDef{identifier: identifier, body: body}
 }
