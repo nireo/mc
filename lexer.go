@@ -48,6 +48,11 @@ const (
 	TOK_ELSE
 	TOK_QUESTION
 	TOK_COLON
+	TOK_DO
+	TOK_WHILE
+	TOK_FOR
+	TOK_BREAK
+	TOK_CONTINUE
 )
 
 // Pattern represents a regex pattern and its token constructor
@@ -65,6 +70,26 @@ func createRegexPatterns() []Pattern {
 		{
 			regex:     regexp.MustCompile(`^void\b`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{VOID_KEYWORD, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^do\b`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_DO, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^while\b`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_WHILE, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^continue\b`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_CONTINUE, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^break\b`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_BREAK, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^for\b`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_FOR, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^return\b`),

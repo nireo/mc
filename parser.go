@@ -71,6 +71,11 @@ const (
 	STMT_EXPR
 	STMT_NULL
 	STMT_COMPOUND
+	STMT_CONTINUE
+	STMT_BREAK
+	STMT_WHILE
+	STMT_DOWHILE
+	STMT_FOR
 )
 
 type BlockKind int
@@ -88,6 +93,23 @@ type IfStatement struct {
 	cond      *Expression
 	then      *Statement
 	otherwise *Statement
+}
+
+type DoWhileStatement struct {
+	body *Statement
+	cond *Expression
+}
+
+type WhileStatement struct {
+	cond *Expression
+	body *Statement
+}
+
+type ForStatement struct {
+	init any // declaration | expression or nothing
+	cond *Expression
+	post *Expression
+	body *Statement
 }
 
 // Statement represents a C expression
@@ -166,7 +188,8 @@ func (p *Parser) parseIfStatement() *Statement {
 }
 
 func (p *Parser) parseStatement() *Statement {
-	if p.tokens[p.idx].Kind == RETURN_KEYWORD {
+	switch p.tokens[p.idx].Kind {
+	case RETURN_KEYWORD:
 		p.expect(RETURN_KEYWORD)
 		expr := p.parseExpr(0)
 		p.expect(SEMICOLON)
@@ -177,14 +200,14 @@ func (p *Parser) parseStatement() *Statement {
 				expr: expr,
 			},
 		}
-	} else if p.tokens[p.idx].Kind == TOK_IF {
+	case TOK_IF:
 		return p.parseIfStatement()
-	} else if p.tokens[p.idx].Kind == SEMICOLON {
+	case SEMICOLON:
 		p.idx += 1
 		return &Statement{
 			kind: STMT_NULL,
 		}
-	} else if p.tokens[p.idx].Kind == OPEN_BRACE {
+	case OPEN_BRACE:
 		p.idx += 1
 		block := p.parseBlock()
 
@@ -194,6 +217,51 @@ func (p *Parser) parseStatement() *Statement {
 				block: block,
 			},
 		}
+	case TOK_BREAK:
+		p.idx += 1
+		p.expect(SEMICOLON)
+		return &Statement{
+			kind: STMT_BREAK,
+		}
+	case TOK_CONTINUE:
+		p.idx += 1
+		p.expect(SEMICOLON)
+		return &Statement{
+			kind: STMT_CONTINUE,
+		}
+	case TOK_DO:
+		p.idx += 1
+		stmt := p.parseStatement()
+		p.expect(TOK_WHILE)
+		p.expect(OPEN_PAREN)
+
+		cond := p.parseExpr(0)
+		p.expect(CLOSE_PAREN)
+		p.expect(SEMICOLON)
+
+		return &Statement{
+			kind: STMT_DOWHILE,
+			data: &DoWhileStatement{
+				cond: cond,
+				body: stmt,
+			},
+		}
+	case TOK_WHILE:
+		p.idx += 1
+		p.expect(OPEN_PAREN)
+		cond := p.parseExpr(0)
+		p.expect(CLOSE_PAREN)
+
+		body := p.parseStatement()
+		return &Statement{
+			kind: STMT_WHILE,
+			data: &WhileStatement{
+				cond: cond,
+				body: body,
+			},
+		}
+	case TOK_FOR:
+		return p.parseForStatement()
 	}
 
 	expr := p.parseExpr(0)
@@ -318,6 +386,55 @@ func (p *Parser) parseDecl() *Declaration {
 	return &Declaration{
 		identifier: ident,
 		init:       expr,
+	}
+}
+
+func (p *Parser) parseForStatement() *Statement {
+	p.expect(TOK_FOR)
+	p.expect(OPEN_PAREN)
+
+	var init any
+	isDecl := false
+	switch p.tokens[p.idx].Kind {
+	case INT_KEYWORD:
+		init = p.parseDecl()
+		isDecl = true
+	case SEMICOLON:
+		init = nil
+	default:
+		init = p.parseExpr(0)
+	}
+
+	if !isDecl {
+		p.expect(SEMICOLON)
+	}
+
+	var cond *Expression = nil
+	if p.tokens[p.idx].Kind == SEMICOLON {
+		p.idx += 1
+	} else {
+		cond = p.parseExpr(0)
+		p.expect(SEMICOLON)
+	}
+
+	var post *Expression = nil
+	if p.tokens[p.idx].Kind == CLOSE_PAREN {
+		p.idx += 1
+	} else {
+		cond = p.parseExpr(0)
+		p.expect(CLOSE_PAREN)
+	}
+
+	body := p.parseStatement()
+
+	return &Statement{
+		kind: STMT_FOR,
+		data: &ForStatement{
+			init: init,
+			cond: cond,
+			post: post,
+			body: body,
+		},
 	}
 }
 
