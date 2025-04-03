@@ -181,10 +181,8 @@ func (g *IrGenerator) Generate(program *Program) *IrProgram {
 	return NewIrProgram(irFunction)
 }
 
-func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
-	instructions := []*IrInstruction{}
-
-	for _, block := range fnDef.body.items {
+func (g *IrGenerator) generateBlock(block *Block, instructions *[]*IrInstruction) {
+	for _, block := range block.items {
 		if block.kind == BLOCK_KIND_DECL {
 			// we only need to generate something if the declaration contains a initializer
 			decl := block.data.(*Declaration)
@@ -198,14 +196,19 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 						},
 						avalue: decl.init,
 					},
-				}, &instructions)
+				}, instructions)
 			}
 
 			continue
 		}
 
-		g.generateStatement(block.data.(*Statement), &instructions)
+		g.generateStatement(block.data.(*Statement), instructions)
 	}
+}
+
+func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
+	instructions := []*IrInstruction{}
+	g.generateBlock(fnDef.body, &instructions)
 
 	// ensure that the main function has a return statement
 	if fnDef.identifier == "main" {
@@ -293,6 +296,8 @@ func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInst
 		g.generateExpression(stmt.data.(*Expression), instructions)
 	case STMT_IF:
 		g.generateIfStatement(stmt.data.(*IfStatement), instructions)
+	case STMT_COMPOUND:
+		g.generateBlock(stmt.data.(*Compound).block, instructions)
 	}
 }
 

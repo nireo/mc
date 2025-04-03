@@ -16,6 +16,11 @@ type SemanticAnalyzer struct {
 	uniqueVarCount int
 }
 
+type SymbolInfo struct {
+	name             string
+	fromCurrentScope bool
+}
+
 func (s *SemanticAnalyzer) newUniqueName() string {
 	unique := fmt.Sprintf("$u.%d", s.uniqueVarCount)
 	s.uniqueVarCount += 1
@@ -23,13 +28,26 @@ func (s *SemanticAnalyzer) newUniqueName() string {
 	return unique
 }
 
-func (s *SemanticAnalyzer) resolveDecl(decl *Declaration, variables map[string]string) {
-	if _, ok := variables[decl.identifier]; ok {
+func copyVariables(variables map[string]SymbolInfo) map[string]SymbolInfo {
+	newVariables := make(map[string]SymbolInfo, len(variables))
+	for name, info := range variables {
+		info.fromCurrentScope = false
+		newVariables[name] = info
+	}
+	return newVariables
+}
+
+func (s *SemanticAnalyzer) resolveDecl(decl *Declaration, variables map[string]SymbolInfo) {
+	// prevent variables what have the same name and that are from the same scope
+	if v, ok := variables[decl.identifier]; ok && v.fromCurrentScope {
 		panic("duplicate veriable declaration")
 	}
 
 	uniqueName := s.newUniqueName()
-	variables[decl.identifier] = uniqueName
+	variables[decl.identifier] = SymbolInfo{
+		name:             uniqueName,
+		fromCurrentScope: true,
+	}
 
 	if decl.init != nil {
 		s.resolveExpr(decl.init, variables)
@@ -38,7 +56,7 @@ func (s *SemanticAnalyzer) resolveDecl(decl *Declaration, variables map[string]s
 	decl.identifier = uniqueName
 }
 
-func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]string) {
+func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]SymbolInfo) {
 	switch expr.kind {
 	case EXP_ASSIGN:
 		assign := expr.data.(*AssignExpr)
@@ -55,8 +73,8 @@ func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]st
 		s.resolveExpr(cond.right, variables)
 	case EXP_VAR:
 		name := expr.data.(string)
-		if uniqueName, ok := variables[name]; ok {
-			expr.data = uniqueName
+		if si, ok := variables[name]; ok {
+			expr.data = si.name
 		} else {
 			panic("undeclared variable")
 		}
@@ -70,7 +88,7 @@ func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]st
 	}
 }
 
-func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[string]string) {
+func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[string]SymbolInfo) {
 	switch stmt.kind {
 	case STMT_RETURN:
 		ret := stmt.data.(*ReturnStatement)
@@ -88,11 +106,12 @@ func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[strin
 		}
 	case STMT_COMPOUND:
 		comp := stmt.data.(*Compound)
-		s.resolveBlock(comp.block, variables)
+		newVariables := copyVariables(variables)
+		s.resolveBlock(comp.block, newVariables)
 	}
 }
 
-func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]string) {
+func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]SymbolInfo) {
 	for _, item := range block.items {
 		if item.kind == BLOCK_KIND_STMT {
 			s.resolveStatement(item.data.(*Statement), variables)
@@ -103,7 +122,7 @@ func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]strin
 }
 
 func (s *SemanticAnalyzer) resolveFunctionDef(fnDef *FunctionDef) {
-	variables := make(map[string]string)
+	variables := make(map[string]SymbolInfo)
 	s.resolveBlock(fnDef.body, variables)
 }
 
