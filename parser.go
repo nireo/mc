@@ -151,7 +151,6 @@ func (p *Parser) parseIfStatement() *Statement {
 
 	var otherwise *Statement
 	if p.tokens[p.idx].Kind == TOK_ELSE {
-		fmt.Println("parsing else")
 		p.idx += 1
 		otherwise = p.parseStatement()
 	}
@@ -184,6 +183,16 @@ func (p *Parser) parseStatement() *Statement {
 		p.idx += 1
 		return &Statement{
 			kind: STMT_NULL,
+		}
+	} else if p.tokens[p.idx].Kind == OPEN_BRACE {
+		p.idx += 1
+		block := p.parseBlock()
+
+		return &Statement{
+			kind: STMT_COMPOUND,
+			data: &Compound{
+				block: block,
+			},
 		}
 	}
 
@@ -227,7 +236,7 @@ func (p *Parser) parseFactor() *Expression {
 		return innerExpr
 	}
 
-	panic("no implementation for expression")
+	panic(fmt.Sprintf("no implementation for expression %d", tok.Kind))
 
 }
 
