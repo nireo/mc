@@ -96,26 +96,37 @@ type IfStatement struct {
 }
 
 type DoWhileStatement struct {
-	body *Statement
-	cond *Expression
+	body       *Statement
+	cond       *Expression
+	identifier string
 }
 
 type WhileStatement struct {
-	cond *Expression
-	body *Statement
+	cond       *Expression
+	body       *Statement
+	identifier string
 }
 
 type ForStatement struct {
-	init any // declaration | expression or nothing
-	cond *Expression
-	post *Expression
-	body *Statement
+	init       any // declaration | expression or nothing
+	cond       *Expression
+	post       *Expression
+	body       *Statement
+	identifier string
 }
 
 // Statement represents a C expression
 type Statement struct {
 	kind StatementKind
 	data any
+}
+
+type Break struct {
+	identifier string
+}
+
+type Continue struct {
+	identifier string
 }
 
 type Declaration struct {
@@ -222,12 +233,14 @@ func (p *Parser) parseStatement() *Statement {
 		p.expect(SEMICOLON)
 		return &Statement{
 			kind: STMT_BREAK,
+			data: &Break{},
 		}
 	case TOK_CONTINUE:
 		p.idx += 1
 		p.expect(SEMICOLON)
 		return &Statement{
 			kind: STMT_CONTINUE,
+			data: &Continue{},
 		}
 	case TOK_DO:
 		p.idx += 1

@@ -108,13 +108,45 @@ func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[strin
 		comp := stmt.data.(*Compound)
 		newVariables := copyVariables(variables)
 		s.resolveBlock(comp.block, newVariables)
+	case STMT_WHILE:
+		comp := stmt.data.(*WhileStatement)
+		s.resolveExpr(comp.cond, variables)
+		s.resolveStatement(comp.body, variables)
+	case STMT_DOWHILE:
+		comp := stmt.data.(*DoWhileStatement)
+		s.resolveExpr(comp.cond, variables)
+		s.resolveStatement(comp.body, variables)
+	case STMT_FOR:
+		newVariables := copyVariables(variables)
+		forStmt := stmt.data.(*ForStatement)
+
+		if forStmt.init != nil {
+			switch v := forStmt.init.(type) {
+			case *Expression:
+				s.resolveExpr(v, newVariables)
+			case *Declaration:
+				s.resolveDecl(v, newVariables)
+			}
+		}
+
+		if forStmt.cond != nil {
+			s.resolveExpr(forStmt.cond, newVariables)
+		}
+
+		if forStmt.post != nil {
+			s.resolveExpr(forStmt.post, newVariables)
+		}
+
+		s.resolveStatement(forStmt.body, newVariables)
 	}
 }
 
 func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]SymbolInfo) {
 	for _, item := range block.items {
 		if item.kind == BLOCK_KIND_STMT {
-			s.resolveStatement(item.data.(*Statement), variables)
+			stmt := item.data.(*Statement)
+			s.resolveStatement(stmt, variables)
+			s.labelLoops(stmt, "")
 		} else if item.kind == BLOCK_KIND_DECL {
 			s.resolveDecl(item.data.(*Declaration), variables)
 		}
@@ -124,6 +156,36 @@ func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]Symbo
 func (s *SemanticAnalyzer) resolveFunctionDef(fnDef *FunctionDef) {
 	variables := make(map[string]SymbolInfo)
 	s.resolveBlock(fnDef.body, variables)
+}
+
+func (s *SemanticAnalyzer) labelLoops(stmt *Statement, currLabel string) {
+	switch stmt.kind {
+	case STMT_BREAK:
+		if currLabel == "" {
+			panic("break statement outside of loop")
+		}
+		stmt.data.(*Break).identifier = currLabel
+	case STMT_CONTINUE:
+		if currLabel == "" {
+			panic("continue statement outside of loop")
+		}
+		stmt.data.(*Continue).identifier = currLabel
+	case STMT_WHILE:
+		whileStmt := stmt.data.(*WhileStatement)
+		newLabel := s.newUniqueName()
+		s.labelLoops(whileStmt.body, newLabel)
+		whileStmt.identifier = newLabel
+	case STMT_DOWHILE:
+		whileStmt := stmt.data.(*DoWhileStatement)
+		newLabel := s.newUniqueName()
+		s.labelLoops(whileStmt.body, newLabel)
+		whileStmt.identifier = newLabel
+	case STMT_FOR:
+		forStmt := stmt.data.(*ForStatement)
+		newLabel := s.newUniqueName()
+		s.labelLoops(forStmt.body, newLabel)
+		forStmt.identifier = newLabel
+	}
 }
 
 func AnalyzeSemantic(prog *Program) {
