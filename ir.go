@@ -184,25 +184,28 @@ func (g *IrGenerator) Generate(program *Program) *IrProgram {
 func (g *IrGenerator) generateBlock(block *Block, instructions *[]*IrInstruction) {
 	for _, block := range block.items {
 		if block.kind == BLOCK_KIND_DECL {
-			// we only need to generate something if the declaration contains a initializer
 			decl := block.data.(*Declaration)
-			if decl.init != nil {
-				g.generateExpression(&Expression{
-					kind: EXP_ASSIGN,
-					data: &AssignExpr{
-						lvalue: &Expression{
-							kind: EXP_VAR,
-							data: decl.identifier,
-						},
-						avalue: decl.init,
-					},
-				}, instructions)
-			}
-
+			g.generateDecl(decl, instructions)
 			continue
 		}
 
 		g.generateStatement(block.data.(*Statement), instructions)
+	}
+}
+
+func (g *IrGenerator) generateDecl(decl *Declaration, instructions *[]*IrInstruction) {
+	// we only need to generate something if the declaration contains a initializer
+	if decl.init != nil {
+		g.generateExpression(&Expression{
+			kind: EXP_ASSIGN,
+			data: &AssignExpr{
+				lvalue: &Expression{
+					kind: EXP_VAR,
+					data: decl.identifier,
+				},
+				avalue: decl.init,
+			},
+		}, instructions)
 	}
 }
 
@@ -287,6 +290,119 @@ func (g *IrGenerator) generateIfStatement(ifst *IfStatement, instructions *[]*Ir
 	}
 }
 
+func (g *IrGenerator) generateDoWhile(doWhile *DoWhileStatement, instructions *[]*IrInstruction) {
+	startLabel := g.newLabel()
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: startLabel,
+	})
+
+	breakLabel := "break" + doWhile.identifier
+	continueLabel := "continue" + doWhile.identifier
+
+	g.generateStatement(doWhile.body, instructions)
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: continueLabel,
+	})
+	v1 := g.generateExpression(doWhile.cond, instructions)
+
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
+		data: &IrJumpIfNotZero{
+			target:    startLabel,
+			condition: v1,
+		},
+	}, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: breakLabel,
+	})
+}
+
+func (g *IrGenerator) generateWhile(whileStmt *WhileStatement, instructions *[]*IrInstruction) {
+	breakLabel := "break" + whileStmt.identifier
+	continueLabel := "continue" + whileStmt.identifier
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: continueLabel,
+	})
+	v1 := g.generateExpression(whileStmt.cond, instructions)
+
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+		data: &IrJumpIfZero{
+			target:    breakLabel,
+			condition: v1,
+		},
+	})
+	g.generateStatement(whileStmt.body, instructions)
+
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP,
+		data: continueLabel,
+	}, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: breakLabel,
+	})
+}
+
+func (g *IrGenerator) generateFor(forStmt *ForStatement, instructions *[]*IrInstruction) {
+	if forStmt.init != nil {
+		switch v := forStmt.init.(type) {
+		case *Expression:
+			g.generateExpression(v, instructions)
+		case *Declaration:
+			g.generateDecl(v, instructions)
+		}
+	}
+	labelStart := g.newLabel()
+	breakLabel := "break" + forStmt.identifier
+	continueLabel := "continue" + forStmt.identifier
+
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: labelStart,
+	})
+
+	if forStmt.cond != nil {
+		v1 := g.generateExpression(forStmt.cond, instructions)
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+			data: &IrJumpIfZero{
+				condition: v1,
+				target:    breakLabel,
+			},
+		})
+	} else {
+		// c standard says that this expression is replaced by a nonzero constant
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+			data: &IrJumpIfZero{
+				condition: NewIrConstant(1),
+				target:    breakLabel,
+			},
+		})
+	}
+
+	g.generateStatement(forStmt.body, instructions)
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: continueLabel,
+	})
+
+	if forStmt.post != nil {
+		g.generateExpression(forStmt.post, instructions)
+	}
+
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP,
+		data: labelStart,
+	}, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: breakLabel,
+	})
+}
+
 func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInstruction) {
 	switch stmt.kind {
 	case STMT_RETURN:
@@ -298,6 +414,22 @@ func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInst
 		g.generateIfStatement(stmt.data.(*IfStatement), instructions)
 	case STMT_COMPOUND:
 		g.generateBlock(stmt.data.(*Compound).block, instructions)
+	case STMT_CONTINUE:
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP,
+			data: "continue" + stmt.data.(*Continue).identifier,
+		})
+	case STMT_BREAK:
+		*instructions = append(*instructions, &IrInstruction{
+			kind: IR_INSTRUCTION_JUMP,
+			data: "break" + stmt.data.(*Break).identifier,
+		})
+	case STMT_DOWHILE:
+		g.generateDoWhile(stmt.data.(*DoWhileStatement), instructions)
+	case STMT_WHILE:
+		g.generateWhile(stmt.data.(*WhileStatement), instructions)
+	case STMT_FOR:
+		g.generateFor(stmt.data.(*ForStatement), instructions)
 	}
 }
 

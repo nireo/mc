@@ -22,7 +22,7 @@ type SymbolInfo struct {
 }
 
 func (s *SemanticAnalyzer) newUniqueName() string {
-	unique := fmt.Sprintf("$u.%d", s.uniqueVarCount)
+	unique := fmt.Sprintf("U%d", s.uniqueVarCount)
 	s.uniqueVarCount += 1
 
 	return unique
