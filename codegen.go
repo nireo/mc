@@ -439,16 +439,15 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 	pseudoToStack := make(map[string]int64)
 	currentOffset := int64(-4)
 
-	for _, inst := range *insts {
-		registerPseudo := func(op Operand) {
-			if op.kind == OPERAND_PSEUDO {
-				if _, exists := pseudoToStack[op.ident]; !exists {
-					pseudoToStack[op.ident] = currentOffset
-					currentOffset -= 4
-				}
+	registerPseudo := func(op Operand) {
+		if op.kind == OPERAND_PSEUDO {
+			if _, exists := pseudoToStack[op.ident]; !exists {
+				pseudoToStack[op.ident] = currentOffset
+				currentOffset -= 4
 			}
 		}
-
+	}
+	for _, inst := range *insts {
 		switch inst.kind {
 		case INS_MOV:
 			mov := inst.data.(*Mov)
@@ -474,17 +473,17 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 		}
 	}
 
-	for i := range *insts {
-		inst := &(*insts)[i]
-
-		replacePseudo := func(op *Operand) {
-			if op.kind == OPERAND_PSEUDO {
-				if offset, exists := pseudoToStack[op.ident]; exists {
-					op.kind = OPERAND_STACK
-					op.imm = offset
-				}
+	replacePseudo := func(op *Operand) {
+		if op.kind == OPERAND_PSEUDO {
+			if offset, exists := pseudoToStack[op.ident]; exists {
+				op.kind = OPERAND_STACK
+				op.imm = offset
 			}
 		}
+	}
+
+	for i := range *insts {
+		inst := &(*insts)[i]
 
 		switch inst.kind {
 		case INS_MOV:
