@@ -144,8 +144,8 @@ type Instruction struct {
 }
 
 type GenFunction struct {
-	name         string
-	instructions []Instruction
+	name string
+	ib   InstructionBuilder
 }
 
 type GenProgram struct {
@@ -227,131 +227,15 @@ func newMov(src Operand, dst Operand) Instruction {
 	}
 }
 
-func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
-	switch ins.kind {
-	case IR_INSTRUCTION_RETURN:
-		retIr := ins.data.(*IrReturnInstruction)
-		*instructions = append(*instructions, newMov(toOperand(retIr.val), Operand{kind: OPERAND_REG_AX}),
-			Instruction{data: &Ret{}})
-		return
-	case IR_INSTRUCTION_UNARY:
-		unaryIr := ins.data.(*IrUnaryInstruction)
-		if unaryIr.operator == IR_UNARY_NOT {
-			*instructions = append(*instructions, Instruction{
-				data: &Cmp{
-					a: Operand{kind: OPERAND_IMM, imm: 0},
-					b: toOperand(unaryIr.src),
-				},
-			}, newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(unaryIr.dst)),
-				Instruction{
-					data: &SetCC{
-						condCode: COND_E,
-						a:        toOperand(unaryIr.dst),
-					},
-				})
-		} else {
-			*instructions = append(*instructions,
-				newMov(toOperand(unaryIr.src), toOperand(unaryIr.dst)), Instruction{
-					data: &UnaryInstruction{
-						op:      convertIrOperator(unaryIr.operator),
-						operand: toOperand(unaryIr.dst),
-					},
-				})
-		}
-	case IR_INSTRUCTION_BINARY:
-		binaryIr := ins.data.(*IrBinaryInstruction)
-		if binaryIr.operator == IR_BIN_DIV {
-			*instructions = append(*instructions,
-				newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
-				Instruction{data: &Cdq{}},
-				Instruction{
-					data: &Idivl{
-						op: toOperand(binaryIr.src2),
-					},
-				},
-				newMov(Operand{kind: OPERAND_REG_AX}, toOperand(binaryIr.dst)),
-			)
-		} else if binaryIr.operator == IR_BIN_REMAINDER {
-			*instructions = append(*instructions,
-				newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
-				Instruction{data: &Cdq{}},
-				Instruction{
-					data: &Idivl{
-						op: toOperand(binaryIr.src2),
-					},
-				},
-				newMov(Operand{kind: OPERAND_REG_DX}, toOperand(binaryIr.dst)),
-			)
-		} else if condCode, ok := relToCondCode[binaryIr.operator]; ok {
-			*instructions = append(*instructions, Instruction{
-				data: &Cmp{
-					a: toOperand(binaryIr.src2),
-					b: toOperand(binaryIr.src1),
-				},
-			},
-				newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(binaryIr.dst)),
-				Instruction{
-					data: &SetCC{
-						condCode: condCode,
-						a:        toOperand(binaryIr.dst),
-					},
-				})
-		} else {
-			*instructions = append(*instructions,
-				newMov(toOperand(binaryIr.src1), toOperand(binaryIr.dst)),
-				Instruction{
-					data: &BinaryInstruction{
-						op: convertIrOperator(binaryIr.operator),
-						a:  toOperand(binaryIr.src2),
-						b:  toOperand(binaryIr.dst),
-					},
-				})
-		}
-	case IR_INSTRUCTION_JUMP:
-		jumpLabel := ins.data.(string)
-		*instructions = append(*instructions, Instruction{
-			data: &Jmp{
-				identifier: jumpLabel,
-			},
-		})
-	case IR_INSTRUCTION_JUMP_IF_ZERO:
-		jumpIfZero := ins.data.(*IrJumpIfZero)
-		*instructions = append(*instructions, Instruction{
-			data: &Cmp{
-				a: Operand{kind: OPERAND_IMM, imm: 0},
-				b: toOperand(jumpIfZero.condition),
-			},
-		}, Instruction{
-			data: &JmpCC{
-				condCode:   COND_E,
-				identifier: jumpIfZero.target,
-			},
-		})
-	case IR_INSTRUCTION_JUMP_IF_NOT_ZERO:
-		jmpifn0 := ins.data.(*IrJumpIfNotZero)
-		*instructions = append(*instructions, Instruction{
-			data: &Cmp{
-				a: Operand{kind: OPERAND_IMM, imm: 0},
-				b: toOperand(jmpifn0.condition),
-			},
-		}, Instruction{
-			data: &JmpCC{
-				condCode:   COND_NE,
-				identifier: jmpifn0.target,
-			},
-		})
-	case IR_INSTRUCTION_COPY:
-		cpy := ins.data.(*IrCopyInstruction)
-		*instructions = append(*instructions, newMov(toOperand(cpy.src), toOperand(cpy.dst)))
-	case IR_INSTRUCTION_LABEL:
-		label := ins.data.(string)
-		*instructions = append(*instructions, Instruction{
-			data: label,
-		})
-	}
+type InstructionBuilder struct {
+	insts []Instruction
 }
 
-func replacePseudoRegisters(insts *[]Instruction) int {
+func (ib *InstructionBuilder) emit(instructions ...Instruction) {
+	ib.insts = append(ib.insts, instructions...)
+}
+
+func (ib *InstructionBuilder) replacePseudoRegisters() int {
 	pseudoToStack := make(map[string]int64)
 	currentOffset := int64(-4)
 
@@ -363,7 +247,7 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 			}
 		}
 	}
-	for _, inst := range *insts {
+	for _, inst := range ib.insts {
 		switch in := inst.data.(type) {
 		case *Mov:
 			registerPseudo(in.a)
@@ -392,8 +276,8 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 		}
 	}
 
-	for i := range *insts {
-		inst := &(*insts)[i]
+	for i := range ib.insts {
+		inst := &ib.insts[i]
 		switch in := inst.data.(type) {
 		case *Mov:
 			replacePseudo(&in.a)
@@ -416,10 +300,12 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 	return len(pseudoToStack) * 4
 }
 
-func fixInstructions(insts *[]Instruction) {
-	var fixedInstructions []Instruction
+func (ib *InstructionBuilder) fixInstructions() {
+	// prealloc atleast the size of the instructions since we know the amount of instructions is equal
+	// or more to the fixed instructions
+	fixedInstructions := make([]Instruction, 0, len(ib.insts))
 
-	for _, inst := range *insts {
+	for _, inst := range ib.insts {
 		if mov, ok := inst.data.(*Mov); ok && mov.a.kind == OPERAND_STACK && mov.b.kind == OPERAND_STACK {
 			// movl -4(%rbp), -8(%rbp)
 			// ->
@@ -515,28 +401,146 @@ func fixInstructions(insts *[]Instruction) {
 		}
 	}
 
-	*insts = fixedInstructions
+	ib.insts = fixedInstructions
+}
+
+func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
+	switch ins.kind {
+	case IR_INSTRUCTION_RETURN:
+		retIr := ins.data.(*IrReturnInstruction)
+		ib.emit(newMov(toOperand(retIr.val), Operand{kind: OPERAND_REG_AX}), Instruction{data: &Ret{}})
+	case IR_INSTRUCTION_UNARY:
+		unaryIr := ins.data.(*IrUnaryInstruction)
+		if unaryIr.operator == IR_UNARY_NOT {
+			ib.emit(Instruction{
+				data: &Cmp{
+					a: Operand{kind: OPERAND_IMM, imm: 0},
+					b: toOperand(unaryIr.src),
+				},
+			}, newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(unaryIr.dst)),
+				Instruction{
+					data: &SetCC{
+						condCode: COND_E,
+						a:        toOperand(unaryIr.dst),
+					},
+				})
+		} else {
+			ib.emit(newMov(toOperand(unaryIr.src), toOperand(unaryIr.dst)), Instruction{
+				data: &UnaryInstruction{
+					op:      convertIrOperator(unaryIr.operator),
+					operand: toOperand(unaryIr.dst),
+				},
+			})
+		}
+	case IR_INSTRUCTION_BINARY:
+		binaryIr := ins.data.(*IrBinaryInstruction)
+		if binaryIr.operator == IR_BIN_DIV {
+			ib.emit(newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
+				Instruction{data: &Cdq{}},
+				Instruction{
+					data: &Idivl{
+						op: toOperand(binaryIr.src2),
+					},
+				},
+				newMov(Operand{kind: OPERAND_REG_AX}, toOperand(binaryIr.dst)),
+			)
+		} else if binaryIr.operator == IR_BIN_REMAINDER {
+			ib.emit(newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
+				Instruction{data: &Cdq{}},
+				Instruction{
+					data: &Idivl{
+						op: toOperand(binaryIr.src2),
+					},
+				},
+				newMov(Operand{kind: OPERAND_REG_DX}, toOperand(binaryIr.dst)),
+			)
+		} else if condCode, ok := relToCondCode[binaryIr.operator]; ok {
+			ib.emit(Instruction{
+				data: &Cmp{
+					a: toOperand(binaryIr.src2),
+					b: toOperand(binaryIr.src1),
+				},
+			},
+				newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(binaryIr.dst)),
+				Instruction{
+					data: &SetCC{
+						condCode: condCode,
+						a:        toOperand(binaryIr.dst),
+					},
+				})
+		} else {
+			ib.emit(newMov(toOperand(binaryIr.src1), toOperand(binaryIr.dst)),
+				Instruction{
+					data: &BinaryInstruction{
+						op: convertIrOperator(binaryIr.operator),
+						a:  toOperand(binaryIr.src2),
+						b:  toOperand(binaryIr.dst),
+					},
+				})
+		}
+	case IR_INSTRUCTION_JUMP:
+		jumpLabel := ins.data.(string)
+		ib.emit(Instruction{
+			data: &Jmp{
+				identifier: jumpLabel,
+			},
+		})
+	case IR_INSTRUCTION_JUMP_IF_ZERO:
+		jumpIfZero := ins.data.(*IrJumpIfZero)
+		ib.emit(Instruction{
+			data: &Cmp{
+				a: Operand{kind: OPERAND_IMM, imm: 0},
+				b: toOperand(jumpIfZero.condition),
+			},
+		}, Instruction{
+			data: &JmpCC{
+				condCode:   COND_E,
+				identifier: jumpIfZero.target,
+			},
+		})
+	case IR_INSTRUCTION_JUMP_IF_NOT_ZERO:
+		jmpifn0 := ins.data.(*IrJumpIfNotZero)
+		ib.emit(Instruction{
+			data: &Cmp{
+				a: Operand{kind: OPERAND_IMM, imm: 0},
+				b: toOperand(jmpifn0.condition),
+			},
+		}, Instruction{
+			data: &JmpCC{
+				condCode:   COND_NE,
+				identifier: jmpifn0.target,
+			},
+		})
+	case IR_INSTRUCTION_COPY:
+		cpy := ins.data.(*IrCopyInstruction)
+		ib.emit(newMov(toOperand(cpy.src), toOperand(cpy.dst)))
+	case IR_INSTRUCTION_LABEL:
+		label := ins.data.(string)
+		ib.emit(Instruction{data: label})
+	}
 }
 
 func GenerateIr(prog *IrProgram) *GenProgram {
 	genFn := &GenFunction{
-		name:         prog.function.identifier,
-		instructions: make([]Instruction, 0),
+		name: prog.function.identifier,
+		ib: InstructionBuilder{
+			insts: make([]Instruction, 0),
+		},
 	}
 
 	for _, inst := range prog.function.body {
-		convertIrInstruction(inst, &genFn.instructions)
+		genFn.ib.emitIrInst(inst)
 	}
 
-	stackSize := replacePseudoRegisters(&genFn.instructions)
-	fixInstructions(&genFn.instructions)
+	stackSize := genFn.ib.replacePseudoRegisters()
+	genFn.ib.fixInstructions()
 
 	if stackSize > 0 {
 		allocInst := Instruction{
 			data: int64(stackSize),
 		}
 
-		genFn.instructions = append([]Instruction{allocInst}, genFn.instructions...)
+		genFn.ib.insts = append([]Instruction{allocInst}, genFn.ib.insts...)
 	}
 
 	return &GenProgram{
@@ -544,8 +548,7 @@ func GenerateIr(prog *IrProgram) *GenProgram {
 	}
 }
 
-type CodeEmitter struct {
-}
+type CodeEmitter struct{}
 
 func NewCodeEmitter() *CodeEmitter {
 	return &CodeEmitter{}
@@ -580,7 +583,7 @@ func (ce *CodeEmitter) EmitFunction(function *GenFunction, writer io.Writer) err
 		return err
 	}
 
-	for _, instruction := range function.instructions {
+	for _, instruction := range function.ib.insts {
 		if _, err := fmt.Fprintln(writer, instruction.String()); err != nil {
 			return err
 		}

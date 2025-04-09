@@ -38,22 +38,26 @@ func copyVariables(variables map[string]SymbolInfo) map[string]SymbolInfo {
 }
 
 func (s *SemanticAnalyzer) resolveDecl(decl *Declaration, variables map[string]SymbolInfo) {
+	vd, ok := decl.data.(*VarDecl)
+	if !ok {
+		panic("trying to resolve function decl")
+	}
+
 	// prevent variables what have the same name and that are from the same scope
-	if v, ok := variables[decl.identifier]; ok && v.fromCurrentScope {
+	if v, ok := variables[vd.identifier]; ok && v.fromCurrentScope {
 		panic("duplicate veriable declaration")
 	}
 
 	uniqueName := s.newUniqueName()
-	variables[decl.identifier] = SymbolInfo{
+	variables[vd.identifier] = SymbolInfo{
 		name:             uniqueName,
 		fromCurrentScope: true,
 	}
 
-	if decl.init != nil {
-		s.resolveExpr(decl.init, variables)
+	if vd.init != nil {
+		s.resolveExpr(vd.init, variables)
 	}
-
-	decl.identifier = uniqueName
+	vd.identifier = uniqueName
 }
 
 func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]SymbolInfo) {
@@ -142,6 +146,10 @@ func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]Symbo
 }
 
 func (s *SemanticAnalyzer) resolveFunctionDef(fnDef *FunctionDef) {
+	if fnDef.body == nil {
+		return
+	}
+
 	variables := make(map[string]SymbolInfo)
 	s.resolveBlock(fnDef.body, variables)
 }
@@ -175,5 +183,8 @@ func (s *SemanticAnalyzer) labelLoops(stmt *Statement, currLabel string) {
 
 func AnalyzeSemantic(prog *Program) {
 	s := SemanticAnalyzer{}
-	s.resolveFunctionDef(prog.mainFunction)
+
+	for _, fn := range prog.funcs {
+		s.resolveFunctionDef(fn)
+	}
 }

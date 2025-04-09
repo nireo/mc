@@ -26,6 +26,11 @@ type AssignExpr struct {
 	avalue *Expression
 }
 
+type FunctionCall struct {
+	ident string
+	args  []*Expression
+}
+
 // Expression represents a C expression
 type Expression struct {
 	data any
@@ -92,9 +97,13 @@ type Continue struct {
 	identifier string
 }
 
-type Declaration struct {
+type VarDecl struct {
 	identifier string
 	init       *Expression
+}
+
+type Declaration struct {
+	data any
 }
 
 type BlockItem struct {
@@ -107,6 +116,7 @@ type Block struct {
 
 type FunctionDef struct {
 	identifier string
+	params     []string
 	body       *Block
 }
 
@@ -115,7 +125,7 @@ type Compound struct {
 }
 
 type Program struct {
-	mainFunction *FunctionDef
+	funcs []*FunctionDef
 }
 
 type Parser struct {
@@ -131,8 +141,8 @@ func NewParser(tokens []TokenValue) *Parser {
 }
 
 func (p *Parser) expect(expectedToken Token) {
-	if p.tokens[p.idx].Kind != expectedToken {
-		panic(fmt.Sprintf("expected another token %d but got wrong token %d", p.tokens[p.idx].Kind, expectedToken))
+	if p.curr().Kind != expectedToken {
+		panic(fmt.Sprintf("expected another token %d but got wrong token %d", expectedToken, p.curr().Kind))
 	}
 	p.idx += 1
 }
@@ -237,12 +247,42 @@ func (p *Parser) parseStatement() *Statement {
 	}
 }
 
+func (p *Parser) parseExprList() []*Expression {
+	exprs := make([]*Expression, 0)
+	first := true
+
+	for p.tokens[p.idx].Kind == TOK_COMMA || first {
+		p.idx += 1
+		if p.curr().Kind == CLOSE_PAREN {
+			break
+		}
+		expr := p.parseExpr(0)
+		exprs = append(exprs, expr)
+		first = false
+	}
+
+	p.expect(CLOSE_PAREN)
+
+	return exprs
+}
+
 func (p *Parser) parseFactor() *Expression {
 	tok := p.tokens[p.idx]
 	p.idx += 1
 
 	switch tok.Kind {
 	case TOK_IDENT:
+		ident := tok.Value.(string)
+		if p.curr().Kind == OPEN_PAREN {
+			args := p.parseExprList()
+			return &Expression{
+				data: &FunctionCall{
+					ident: ident,
+					args:  args,
+				},
+			}
+		}
+
 		return &Expression{
 			data: tok.Value.(string),
 		}
@@ -328,23 +368,56 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 	return left
 }
 
-func (p *Parser) parseDecl() *Declaration {
+func (p *Parser) parseDecl(parseVar bool) *Declaration {
 	p.expect(INT_KEYWORD)
 	ident := p.tokens[p.idx].Value.(string)
 	p.idx += 1
 	var expr *Expression
 
-	if p.tokens[p.idx].Kind == TOK_ASSIGN {
-		p.idx += 1
+	c := p.curr()
+	if c.Kind == TOK_ASSIGN {
+		p.next()
 		expr = p.parseExpr(0)
 		p.expect(SEMICOLON)
+	} else if c.Kind == OPEN_PAREN {
+		p.next()
+		args := p.parseParamList()
+		c := p.curr()
+		var body *Block
+		if c.Kind == OPEN_BRACE {
+			p.idx += 1
+
+			if parseVar {
+				panic("function inside another function")
+			}
+			body = p.parseBlock()
+
+		} else if c.Kind == SEMICOLON {
+			p.idx += 1
+		} else {
+			panic("unexpected token after function")
+		}
+
+		return &Declaration{
+			data: &FunctionDef{
+				identifier: ident,
+				params:     args,
+				body:       body,
+			},
+		}
 	} else {
 		p.expect(SEMICOLON)
 	}
 
+	if !parseVar {
+		panic("not allowed vars in top level")
+	}
+
 	return &Declaration{
-		identifier: ident,
-		init:       expr,
+		data: &VarDecl{
+			identifier: ident,
+			init:       expr,
+		},
 	}
 }
 
@@ -356,7 +429,7 @@ func (p *Parser) parseForStatement() *Statement {
 	isDecl := false
 	switch p.tokens[p.idx].Kind {
 	case INT_KEYWORD:
-		init = p.parseDecl()
+		init = p.parseDecl(true)
 		isDecl = true
 	case SEMICOLON:
 		init = nil
@@ -405,7 +478,7 @@ func (p *Parser) parseBlock() *Block {
 		}
 
 		if currTok == INT_KEYWORD {
-			decl := p.parseDecl()
+			decl := p.parseDecl(true)
 			body = append(body, BlockItem{
 				data: decl,
 			})
@@ -433,26 +506,51 @@ func (p *Parser) parseBlock() *Block {
 	}
 }
 
-func (p *Parser) parseFunctionDef() *FunctionDef {
-	p.expect(INT_KEYWORD)
+func (p *Parser) curr() *TokenValue {
+	return &p.tokens[p.idx]
+}
 
-	identifier := p.tokens[p.idx].Value.(string)
+func (p *Parser) next() {
 	p.idx += 1
+}
 
-	p.expect(OPEN_PAREN)
-	p.expect(VOID_KEYWORD)
+func (p *Parser) parseParamList() []string {
+	args := []string{}
+	tok := p.tokens[p.idx]
+	switch tok.Kind {
+	case VOID_KEYWORD:
+		p.idx += 1
+	case INT_KEYWORD:
+		p.idx += 1
+		identifier := p.tokens[p.idx].Value.(string)
+		p.idx += 1
+
+		args = append(args, identifier)
+
+		for p.tokens[p.idx].Kind == TOK_COMMA {
+			p.idx += 1
+			p.expect(INT_KEYWORD)
+			i := p.tokens[p.idx].Value.(string)
+			args = append(args, i)
+			p.idx += 1
+		}
+	}
+
 	p.expect(CLOSE_PAREN)
-	p.expect(OPEN_BRACE)
 
-	body := p.parseBlock()
-
-	return &FunctionDef{identifier: identifier, body: body}
+	return args
 }
 
 func (p *Parser) Parse() *Program {
-	fnDef := p.parseFunctionDef()
-
-	return &Program{
-		mainFunction: fnDef,
+	var funcs []*FunctionDef
+	for p.idx < len(p.tokens) && p.curr().Kind == INT_KEYWORD {
+		decl := p.parseDecl(false)
+		if fnDef, ok := decl.data.(*FunctionDef); ok {
+			funcs = append(funcs, fnDef)
+		} else {
+			panic("failed to parse function decl")
+		}
 	}
+
+	return &Program{funcs: funcs}
 }

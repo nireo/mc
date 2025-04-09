@@ -22,11 +22,11 @@ const (
 	INT_KEYWORD
 	VOID_KEYWORD
 	RETURN_KEYWORD
-	OPEN_PAREN
+	OPEN_PAREN // 5
 	CLOSE_PAREN
 	OPEN_BRACE
 	CLOSE_BRACE
-	SEMICOLON
+	SEMICOLON // 9
 	TILDE
 	MINUS
 	DECREMENT
@@ -53,6 +53,7 @@ const (
 	TOK_FOR
 	TOK_BREAK
 	TOK_CONTINUE
+	TOK_COMMA
 )
 
 // Pattern represents a regex pattern and its token constructor
@@ -211,6 +212,10 @@ func createRegexPatterns() []Pattern {
 		{
 			regex:     regexp.MustCompile(`^;`),
 			tokenFunc: func(s string) TokenValue { return TokenValue{SEMICOLON, nil} },
+		},
+		{
+			regex:     regexp.MustCompile(`^,`),
+			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_COMMA, nil} },
 		},
 	}
 }

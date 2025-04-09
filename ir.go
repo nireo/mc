@@ -175,9 +175,14 @@ func NewIrGenerator() *IrGenerator {
 }
 
 func (g *IrGenerator) Generate(program *Program) *IrProgram {
-	fnDef := program.mainFunction
-	irFunction := g.generateFunction(fnDef)
+	var mainFn *FunctionDef
+	for _, fn := range program.funcs {
+		if fn.identifier == "main" {
+			mainFn = fn
+		}
+	}
 
+	irFunction := g.generateFunction(mainFn)
 	return NewIrProgram(irFunction)
 }
 
@@ -194,13 +199,18 @@ func (g *IrGenerator) generateBlock(block *Block, instructions *[]*IrInstruction
 
 func (g *IrGenerator) generateDecl(decl *Declaration, instructions *[]*IrInstruction) {
 	// we only need to generate something if the declaration contains a initializer
-	if decl.init != nil {
+	vd, ok := decl.data.(*VarDecl)
+	if !ok {
+		panic("trying to generate function decl")
+	}
+
+	if vd.init != nil {
 		g.generateExpression(&Expression{
 			data: &AssignExpr{
 				lvalue: &Expression{
-					data: decl.identifier,
+					data: vd.identifier,
 				},
-				avalue: decl.init,
+				avalue: vd.init,
 			},
 		}, instructions)
 	}
