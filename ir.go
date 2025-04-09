@@ -241,33 +241,18 @@ func (g *IrGenerator) generateIfStatement(ifst *IfStatement, instructions *[]*Ir
 	c := g.generateExpression(ifst.cond, instructions)
 	if ifst.otherwise == nil {
 		endLabel := g.newLabel()
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			data: &IrJumpIfZero{
-				condition: c,
-				target:    endLabel,
-			},
-		})
-
+		g.jumpIfZero(endLabel, c, instructions)
 		g.generateStatement(ifst.then, instructions)
 		g.addLabel(endLabel, instructions)
 	} else {
 		endLabel := g.newLabel()
 		elseLabel := g.newLabel()
 
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			data: &IrJumpIfZero{
-				condition: c,
-				target:    elseLabel,
-			},
-		})
+		g.jumpIfZero(elseLabel, c, instructions)
 
 		g.generateStatement(ifst.then, instructions)
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP,
-			data: endLabel,
-		})
+		g.addJump(endLabel, instructions)
+
 		g.addLabel(elseLabel, instructions)
 
 		g.generateStatement(ifst.otherwise, instructions)
@@ -302,13 +287,7 @@ func (g *IrGenerator) generateWhile(whileStmt *WhileStatement, instructions *[]*
 	g.addLabel(continueLabel, instructions)
 	v1 := g.generateExpression(whileStmt.cond, instructions)
 
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-		data: &IrJumpIfZero{
-			target:    breakLabel,
-			condition: v1,
-		},
-	})
+	g.jumpIfZero(breakLabel, v1, instructions)
 	g.generateStatement(whileStmt.body, instructions)
 
 	g.addJump(continueLabel, instructions)
@@ -331,22 +310,10 @@ func (g *IrGenerator) generateFor(forStmt *ForStatement, instructions *[]*IrInst
 
 	if forStmt.cond != nil {
 		v1 := g.generateExpression(forStmt.cond, instructions)
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			data: &IrJumpIfZero{
-				condition: v1,
-				target:    breakLabel,
-			},
-		})
+		g.jumpIfZero(breakLabel, v1, instructions)
 	} else {
 		// c standard says that this expression is replaced by a nonzero constant
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			data: &IrJumpIfZero{
-				condition: NewIrConstant(1),
-				target:    breakLabel,
-			},
-		})
+		g.jumpIfZero(breakLabel, NewIrConstant(1), instructions)
 	}
 
 	g.generateStatement(forStmt.body, instructions)
@@ -414,43 +381,16 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 
 	if binExpr.operator == TOK_AND {
 		v1 := g.generateExpression(binExpr.lhs, instructions)
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			data: &IrJumpIfZero{
-				condition: v1,
-				target:    falseLabel,
-			},
-		})
+		g.jumpIfZero(falseLabel, v1, instructions)
 
 		v2 := g.generateExpression(binExpr.rhs, instructions)
+		g.jumpIfZero(falseLabel, v2, instructions)
 
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			data: &IrJumpIfZero{
-				condition: v2,
-				target:    falseLabel,
-			},
-		})
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_COPY,
-			data: &IrCopyInstruction{
-				src: NewIrConstant(1),
-				dst: resultVar,
-			},
-		})
-
+		g.addCopy(NewIrConstant(1), resultVar, instructions)
 		g.addJump(endLabel, instructions)
-		g.addLabel(falseLabel, instructions)
 
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_COPY,
-			data: &IrCopyInstruction{
-				src: NewIrConstant(0),
-				dst: resultVar,
-			},
-		})
+		g.addLabel(falseLabel, instructions)
+		g.addCopy(NewIrConstant(0), resultVar, instructions)
 		g.addLabel(endLabel, instructions)
 	} else if binExpr.operator == TOK_OR {
 		trueLabel := g.newLabel()
@@ -464,36 +404,15 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 		v2 := g.generateExpression(binExpr.rhs, instructions)
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-			data: &IrJumpIfZero{
-				condition: v2,
-				target:    falseLabel,
-			},
-		})
+		g.jumpIfZero(falseLabel, v2, instructions)
 
 		g.addJump(trueLabel, instructions)
 		g.addLabel(falseLabel, instructions)
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_COPY,
-			data: &IrCopyInstruction{
-				src: NewIrConstant(0),
-				dst: resultVar,
-			},
-		})
+		g.addCopy(NewIrConstant(0), resultVar, instructions)
 
 		g.addJump(endLabel, instructions)
 		g.addLabel(trueLabel, instructions)
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_COPY,
-			data: &IrCopyInstruction{
-				src: NewIrConstant(1),
-				dst: resultVar,
-			},
-		})
+		g.addCopy(NewIrConstant(1), resultVar, instructions)
 
 		g.addLabel(endLabel, instructions)
 	}
@@ -506,35 +425,16 @@ func (g *IrGenerator) generateConditionalExpr(expr *CondExpr, instructions *[]*I
 	e2Label := g.newLabel()
 	endLabel := g.newLabel()
 
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP_IF_ZERO,
-		data: &IrJumpIfZero{
-			target:    e2Label,
-			condition: cond,
-		},
-	})
-
+	g.jumpIfZero(e2Label, cond, instructions)
 	v1 := g.generateExpression(expr.middle, instructions)
 
 	res := g.newTempVar()
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_COPY,
-		data: &IrCopyInstruction{
-			src: v1,
-			dst: res,
-		},
-	})
+	g.addCopy(v1, res, instructions)
 	g.addJump(endLabel, instructions)
 	g.addLabel(e2Label, instructions)
 
 	v2 := g.generateExpression(expr.right, instructions)
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_COPY,
-		data: &IrCopyInstruction{
-			src: v2,
-			dst: res,
-		},
-	})
+	g.addCopy(v2, res, instructions)
 	g.addLabel(endLabel, instructions)
 
 	return res
@@ -598,13 +498,7 @@ func (g *IrGenerator) generateAssign(assign *AssignExpr, instructions *[]*IrInst
 	res := g.generateExpression(assign.avalue, instructions)
 
 	irVar := NewIrVar(lval)
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_COPY,
-		data: &IrCopyInstruction{
-			src: res,
-			dst: irVar,
-		},
-	})
+	g.addCopy(res, irVar, instructions)
 
 	return irVar
 }
@@ -652,5 +546,25 @@ func (g *IrGenerator) addJump(target string, instructions *[]*IrInstruction) {
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_JUMP,
 		data: target,
+	})
+}
+
+func (g *IrGenerator) addCopy(src *IrVal, dst *IrVal, instructions *[]*IrInstruction) {
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_COPY,
+		data: &IrCopyInstruction{
+			src: src,
+			dst: dst,
+		},
+	})
+}
+
+func (g *IrGenerator) jumpIfZero(target string, condition *IrVal, instructions *[]*IrInstruction) {
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP_IF_ZERO,
+		data: &IrJumpIfZero{
+			target:    target,
+			condition: condition,
+		},
 	})
 }
