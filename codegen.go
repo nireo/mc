@@ -97,22 +97,8 @@ func (o Operand) String() string {
 	return ""
 }
 
-type InstructionKind int
-
-const (
-	INS_RET InstructionKind = iota
-	INS_MOV
-	INS_UNARY
-	INS_ALLOC_STACK
-	INS_CDQ
-	INS_IDIV
-	INS_BINARY
-	INS_CMP
-	INS_JMP
-	INS_JMPCC
-	INS_SETCC
-	INS_LABEL
-)
+type Cdq struct{}
+type Ret struct{}
 
 type UnaryInstruction struct {
 	op      Operation
@@ -154,7 +140,6 @@ type Mov struct {
 }
 
 type Instruction struct {
-	kind InstructionKind
 	data any
 }
 
@@ -168,47 +153,36 @@ type GenProgram struct {
 }
 
 func (i Instruction) String() string {
-	switch i.kind {
-	case INS_RET:
+	switch in := i.data.(type) {
+	case *Ret:
 		return "\tmovq %rbp, %rsp\n\tpopq %rbp\n\tret"
-	case INS_MOV:
-		mov := i.data.(*Mov)
-		return fmt.Sprintf("\tmovl %s, %s", mov.a.String(), mov.b.String())
-	case INS_ALLOC_STACK:
-		size := i.data.(int64)
-		return fmt.Sprintf("\tsubq $%d, %%rsp", size)
-	case INS_UNARY:
-		unary := i.data.(*UnaryInstruction)
-		return fmt.Sprintf("\t%s %s", unary.op, unary.operand)
-	case INS_BINARY:
-		binary := i.data.(*BinaryInstruction)
-		return fmt.Sprintf("\t%s %s, %s", binary.op, binary.a, binary.b)
-	case INS_IDIV:
-		idivl := i.data.(*Idivl)
-		return fmt.Sprintf("\tidivl %s", idivl.op)
-	case INS_CDQ:
+	case *Mov:
+		return fmt.Sprintf("\tmovl %s, %s", in.a.String(), in.b.String())
+	case int64:
+		return fmt.Sprintf("\tsubq $%d, %%rsp", in)
+	case *UnaryInstruction:
+		return fmt.Sprintf("\t%s %s", in.op, in.operand)
+	case *BinaryInstruction:
+		return fmt.Sprintf("\t%s %s, %s", in.op, in.a, in.b)
+	case *Idivl:
+		return fmt.Sprintf("\tidivl %s", in.op)
+	case *Cdq:
 		return "\tcdq"
-	case INS_CMP:
-		cmp := i.data.(*Cmp)
-		return fmt.Sprintf("\tcmpl %s, %s", cmp.a, cmp.b)
-	case INS_JMP:
-		jmp := i.data.(*Jmp)
-		return fmt.Sprintf("\tjmp .L%s", jmp.identifier)
-	case INS_JMPCC:
-		jmpcc := i.data.(*JmpCC)
-		return fmt.Sprintf("\tj%s .L%s", jmpcc.condCode, jmpcc.identifier)
-	case INS_SETCC:
-		setcc := i.data.(*SetCC)
-		if regName, shouldEmitSingleByte := oneByteRegisters[setcc.a.kind]; shouldEmitSingleByte {
-			return fmt.Sprintf("\tset%s %s", setcc.condCode, regName)
+	case *Cmp:
+		return fmt.Sprintf("\tcmpl %s, %s", in.a, in.b)
+	case *Jmp:
+		return fmt.Sprintf("\tjmp .L%s", in.identifier)
+	case *JmpCC:
+		return fmt.Sprintf("\tj%s .L%s", in.condCode, in.identifier)
+	case *SetCC:
+		if regName, shouldEmitSingleByte := oneByteRegisters[in.a.kind]; shouldEmitSingleByte {
+			return fmt.Sprintf("\tset%s %s", in.condCode, regName)
 		}
 		// since the register wasn't ax, dx, r10 or r11. just emit the existing one
-
-		return fmt.Sprintf("\tset%s %s", setcc.condCode, setcc.a)
-	case INS_LABEL:
+		return fmt.Sprintf("\tset%s %s", in.condCode, in.a)
+	case string:
 		return fmt.Sprintf(".L%s:", i.data.(string))
 	}
-
 	panic("unsupported isntructions")
 }
 
@@ -244,145 +218,98 @@ func convertIrOperator(op IrOperator) Operation {
 	panic("unrecognized ir operator")
 }
 
+func newMov(src Operand, dst Operand) Instruction {
+	return Instruction{
+		data: &Mov{
+			a: src,
+			b: dst,
+		},
+	}
+}
+
 func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 	switch ins.kind {
 	case IR_INSTRUCTION_RETURN:
 		retIr := ins.data.(*IrReturnInstruction)
-		*instructions = append(*instructions, Instruction{
-			kind: INS_MOV,
-			data: &Mov{
-				a: toOperand(retIr.val),
-				b: Operand{kind: OPERAND_REG_AX},
-			},
-		}, Instruction{kind: INS_RET})
+		*instructions = append(*instructions, newMov(toOperand(retIr.val), Operand{kind: OPERAND_REG_AX}),
+			Instruction{data: &Ret{}})
 		return
 	case IR_INSTRUCTION_UNARY:
 		unaryIr := ins.data.(*IrUnaryInstruction)
 		if unaryIr.operator == IR_UNARY_NOT {
 			*instructions = append(*instructions, Instruction{
-				kind: INS_CMP,
 				data: &Cmp{
 					a: Operand{kind: OPERAND_IMM, imm: 0},
 					b: toOperand(unaryIr.src),
 				},
-			}, Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: Operand{kind: OPERAND_IMM, imm: 0},
-					b: toOperand(unaryIr.dst),
-				},
-			}, Instruction{
-				kind: INS_SETCC,
-				data: &SetCC{
-					condCode: COND_E,
-					a:        toOperand(unaryIr.dst),
-				},
-			})
+			}, newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(unaryIr.dst)),
+				Instruction{
+					data: &SetCC{
+						condCode: COND_E,
+						a:        toOperand(unaryIr.dst),
+					},
+				})
 		} else {
-			*instructions = append(*instructions, Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: toOperand(unaryIr.src),
-					b: toOperand(unaryIr.dst),
-				},
-			}, Instruction{
-				kind: INS_UNARY,
-				data: &UnaryInstruction{
-					op:      convertIrOperator(unaryIr.operator),
-					operand: toOperand(unaryIr.dst),
-				},
-			})
+			*instructions = append(*instructions,
+				newMov(toOperand(unaryIr.src), toOperand(unaryIr.dst)), Instruction{
+					data: &UnaryInstruction{
+						op:      convertIrOperator(unaryIr.operator),
+						operand: toOperand(unaryIr.dst),
+					},
+				})
 		}
 	case IR_INSTRUCTION_BINARY:
 		binaryIr := ins.data.(*IrBinaryInstruction)
 		if binaryIr.operator == IR_BIN_DIV {
 			*instructions = append(*instructions,
+				newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
+				Instruction{data: &Cdq{}},
 				Instruction{
-					kind: INS_MOV,
-					data: &Mov{
-						a: toOperand(binaryIr.src1),
-						b: Operand{kind: OPERAND_REG_AX},
-					},
-				},
-				Instruction{kind: INS_CDQ},
-				Instruction{
-					kind: INS_IDIV,
 					data: &Idivl{
 						op: toOperand(binaryIr.src2),
 					},
 				},
-				Instruction{
-					kind: INS_MOV,
-					data: &Mov{
-						a: Operand{kind: OPERAND_REG_AX},
-						b: toOperand(binaryIr.dst),
-					},
-				},
+				newMov(Operand{kind: OPERAND_REG_AX}, toOperand(binaryIr.dst)),
 			)
 		} else if binaryIr.operator == IR_BIN_REMAINDER {
 			*instructions = append(*instructions,
+				newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
+				Instruction{data: &Cdq{}},
 				Instruction{
-					kind: INS_MOV,
-					data: &Mov{
-						a: toOperand(binaryIr.src1),
-						b: Operand{kind: OPERAND_REG_AX},
-					},
-				},
-				Instruction{kind: INS_CDQ},
-				Instruction{
-					kind: INS_IDIV, data: &Idivl{
+					data: &Idivl{
 						op: toOperand(binaryIr.src2),
 					},
 				},
-
-				Instruction{
-					kind: INS_MOV,
-					data: &Mov{
-						a: Operand{kind: OPERAND_REG_DX},
-						b: toOperand(binaryIr.dst),
-					},
-				},
+				newMov(Operand{kind: OPERAND_REG_DX}, toOperand(binaryIr.dst)),
 			)
 		} else if condCode, ok := relToCondCode[binaryIr.operator]; ok {
 			*instructions = append(*instructions, Instruction{
-				kind: INS_CMP,
 				data: &Cmp{
 					a: toOperand(binaryIr.src2),
 					b: toOperand(binaryIr.src1),
 				},
-			}, Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: Operand{kind: OPERAND_IMM, imm: 0},
-					b: toOperand(binaryIr.dst),
-				},
-			}, Instruction{
-				kind: INS_SETCC,
-				data: &SetCC{
-					condCode: condCode,
-					a:        toOperand(binaryIr.dst),
-				},
-			})
+			},
+				newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(binaryIr.dst)),
+				Instruction{
+					data: &SetCC{
+						condCode: condCode,
+						a:        toOperand(binaryIr.dst),
+					},
+				})
 		} else {
-			*instructions = append(*instructions, Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: toOperand(binaryIr.src1),
-					b: toOperand(binaryIr.dst),
-				},
-			}, Instruction{
-				kind: INS_BINARY,
-				data: &BinaryInstruction{
-					op: convertIrOperator(binaryIr.operator),
-					a:  toOperand(binaryIr.src2),
-					b:  toOperand(binaryIr.dst),
-				},
-			})
+			*instructions = append(*instructions,
+				newMov(toOperand(binaryIr.src1), toOperand(binaryIr.dst)),
+				Instruction{
+					data: &BinaryInstruction{
+						op: convertIrOperator(binaryIr.operator),
+						a:  toOperand(binaryIr.src2),
+						b:  toOperand(binaryIr.dst),
+					},
+				})
 		}
 	case IR_INSTRUCTION_JUMP:
 		jumpLabel := ins.data.(string)
 		*instructions = append(*instructions, Instruction{
-			kind: INS_JMP,
 			data: &Jmp{
 				identifier: jumpLabel,
 			},
@@ -390,13 +317,11 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 	case IR_INSTRUCTION_JUMP_IF_ZERO:
 		jumpIfZero := ins.data.(*IrJumpIfZero)
 		*instructions = append(*instructions, Instruction{
-			kind: INS_CMP,
 			data: &Cmp{
 				a: Operand{kind: OPERAND_IMM, imm: 0},
 				b: toOperand(jumpIfZero.condition),
 			},
 		}, Instruction{
-			kind: INS_JMPCC,
 			data: &JmpCC{
 				condCode:   COND_E,
 				identifier: jumpIfZero.target,
@@ -405,13 +330,11 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 	case IR_INSTRUCTION_JUMP_IF_NOT_ZERO:
 		jmpifn0 := ins.data.(*IrJumpIfNotZero)
 		*instructions = append(*instructions, Instruction{
-			kind: INS_CMP,
 			data: &Cmp{
 				a: Operand{kind: OPERAND_IMM, imm: 0},
 				b: toOperand(jmpifn0.condition),
 			},
 		}, Instruction{
-			kind: INS_JMPCC,
 			data: &JmpCC{
 				condCode:   COND_NE,
 				identifier: jmpifn0.target,
@@ -419,17 +342,10 @@ func convertIrInstruction(ins *IrInstruction, instructions *[]Instruction) {
 		})
 	case IR_INSTRUCTION_COPY:
 		cpy := ins.data.(*IrCopyInstruction)
-		*instructions = append(*instructions, Instruction{
-			kind: INS_MOV,
-			data: &Mov{
-				a: toOperand(cpy.src),
-				b: toOperand(cpy.dst),
-			},
-		})
+		*instructions = append(*instructions, newMov(toOperand(cpy.src), toOperand(cpy.dst)))
 	case IR_INSTRUCTION_LABEL:
 		label := ins.data.(string)
 		*instructions = append(*instructions, Instruction{
-			kind: INS_LABEL,
 			data: label,
 		})
 	}
@@ -448,28 +364,22 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 		}
 	}
 	for _, inst := range *insts {
-		switch inst.kind {
-		case INS_MOV:
-			mov := inst.data.(*Mov)
-			registerPseudo(mov.a)
-			registerPseudo(mov.b)
-		case INS_IDIV:
-			idivl := inst.data.(*Idivl)
-			registerPseudo(idivl.op)
-		case INS_UNARY:
-			unary := inst.data.(*UnaryInstruction)
-			registerPseudo(unary.operand)
-		case INS_BINARY:
-			bin := inst.data.(*BinaryInstruction)
-			registerPseudo(bin.a)
-			registerPseudo(bin.b)
-		case INS_CMP:
-			cmp := inst.data.(*Cmp)
-			registerPseudo(cmp.a)
-			registerPseudo(cmp.b)
-		case INS_SETCC:
-			setcc := inst.data.(*SetCC)
-			registerPseudo(setcc.a)
+		switch in := inst.data.(type) {
+		case *Mov:
+			registerPseudo(in.a)
+			registerPseudo(in.b)
+		case *Idivl:
+			registerPseudo(in.op)
+		case *UnaryInstruction:
+			registerPseudo(in.operand)
+		case *BinaryInstruction:
+			registerPseudo(in.a)
+			registerPseudo(in.b)
+		case *Cmp:
+			registerPseudo(in.a)
+			registerPseudo(in.b)
+		case *SetCC:
+			registerPseudo(in.a)
 		}
 	}
 
@@ -484,29 +394,22 @@ func replacePseudoRegisters(insts *[]Instruction) int {
 
 	for i := range *insts {
 		inst := &(*insts)[i]
-
-		switch inst.kind {
-		case INS_MOV:
-			mov := inst.data.(*Mov)
-			replacePseudo(&mov.a)
-			replacePseudo(&mov.b)
-		case INS_IDIV:
-			idivl := inst.data.(*Idivl)
-			replacePseudo(&idivl.op)
-		case INS_UNARY:
-			unary := inst.data.(*UnaryInstruction)
-			replacePseudo(&unary.operand)
-		case INS_BINARY:
-			bin := inst.data.(*BinaryInstruction)
-			replacePseudo(&bin.a)
-			replacePseudo(&bin.b)
-		case INS_CMP:
-			cmp := inst.data.(*Cmp)
-			replacePseudo(&cmp.a)
-			replacePseudo(&cmp.b)
-		case INS_SETCC:
-			setcc := inst.data.(*SetCC)
-			replacePseudo(&setcc.a)
+		switch in := inst.data.(type) {
+		case *Mov:
+			replacePseudo(&in.a)
+			replacePseudo(&in.b)
+		case *Idivl:
+			replacePseudo(&in.op)
+		case *UnaryInstruction:
+			replacePseudo(&in.operand)
+		case *BinaryInstruction:
+			replacePseudo(&in.a)
+			replacePseudo(&in.b)
+		case *Cmp:
+			replacePseudo(&in.a)
+			replacePseudo(&in.b)
+		case *SetCC:
+			replacePseudo(&in.a)
 		}
 	}
 
@@ -522,21 +425,8 @@ func fixInstructions(insts *[]Instruction) {
 			// ->
 			// movl -4(%rbp), %r10d
 			// movl %r10d, -8(%rbp)
-			moveToR10 := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: mov.a,
-					b: Operand{kind: OPERAND_REG_R10},
-				},
-			}
-
-			moveFromR10 := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: Operand{kind: OPERAND_REG_R10},
-					b: mov.b,
-				},
-			}
+			moveToR10 := newMov(mov.a, Operand{kind: OPERAND_REG_R10})
+			moveFromR10 := newMov(Operand{kind: OPERAND_REG_R10}, mov.b)
 
 			fixedInstructions = append(fixedInstructions, moveToR10, moveFromR10)
 		} else if idivl, ok := inst.data.(*Idivl); ok && idivl.op.kind == OPERAND_IMM {
@@ -545,16 +435,8 @@ func fixInstructions(insts *[]Instruction) {
 			// movl $3, %r10d
 			// idivl %r10d
 
-			movToR10 := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: idivl.op,
-					b: Operand{kind: OPERAND_REG_R10},
-				},
-			}
-
+			movToR10 := newMov(idivl.op, Operand{kind: OPERAND_REG_R10})
 			idivl := Instruction{
-				kind: INS_IDIV,
 				data: &Idivl{
 					op: Operand{kind: OPERAND_REG_R10},
 				},
@@ -570,16 +452,8 @@ func fixInstructions(insts *[]Instruction) {
 			// movl -4(%rbp), %r10d
 			// addl %r10d, -8(%rbp)
 
-			moveToR10 := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: binary.a,
-					b: Operand{kind: OPERAND_REG_R10},
-				},
-			}
-
+			moveToR10 := newMov(binary.a, Operand{kind: OPERAND_REG_R10})
 			addl := Instruction{
-				kind: INS_BINARY,
 				data: &BinaryInstruction{
 					op: binary.op,
 					a:  Operand{kind: OPERAND_REG_R10},
@@ -596,16 +470,8 @@ func fixInstructions(insts *[]Instruction) {
 			// movl -4(%rbp), %r11d
 			// imull $3, %r11d
 			// movl %r11d, -4(%rbp)
-			moveToR11 := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: binary.b,
-					b: Operand{kind: OPERAND_REG_R11},
-				},
-			}
-
+			moveToR11 := newMov(binary.b, Operand{kind: OPERAND_REG_R11})
 			imull := Instruction{
-				kind: INS_BINARY,
 				data: &BinaryInstruction{
 					op: A_O_MUL,
 					a:  binary.a,
@@ -613,13 +479,7 @@ func fixInstructions(insts *[]Instruction) {
 				},
 			}
 
-			movToStack := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: Operand{kind: OPERAND_REG_R11},
-					b: binary.b,
-				},
-			}
+			movToStack := newMov(Operand{kind: OPERAND_REG_R11}, binary.b)
 			fixedInstructions = append(fixedInstructions, moveToR11, imull, movToStack)
 		} else if cmp, ok := inst.data.(*Cmp); ok &&
 			cmp.a.kind == OPERAND_STACK && cmp.b.kind == OPERAND_STACK {
@@ -630,16 +490,8 @@ func fixInstructions(insts *[]Instruction) {
 			// movl -4(%rbp), %r10d
 			// cmpl %r10d, -8(%rbp)
 
-			moveToR10 := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: cmp.a,
-					b: Operand{kind: OPERAND_REG_R10},
-				},
-			}
-
+			moveToR10 := newMov(cmp.a, Operand{kind: OPERAND_REG_R10})
 			cmpl := Instruction{
-				kind: INS_CMP,
 				data: &Cmp{
 					a: Operand{kind: OPERAND_REG_R10},
 					b: cmp.b,
@@ -648,16 +500,9 @@ func fixInstructions(insts *[]Instruction) {
 
 			fixedInstructions = append(fixedInstructions, moveToR10, cmpl)
 		} else if cmp, ok := inst.data.(*Cmp); ok && cmp.b.kind == OPERAND_IMM {
-			moveConstant := Instruction{
-				kind: INS_MOV,
-				data: &Mov{
-					a: cmp.b,
-					b: Operand{kind: OPERAND_REG_R11},
-				},
-			}
 
+			moveConstant := newMov(cmp.b, Operand{kind: OPERAND_REG_R11})
 			cmpl := Instruction{
-				kind: INS_CMP,
 				data: &Cmp{
 					a: cmp.a,
 					b: Operand{kind: OPERAND_REG_R11},
@@ -688,7 +533,6 @@ func GenerateIr(prog *IrProgram) *GenProgram {
 
 	if stackSize > 0 {
 		allocInst := Instruction{
-			kind: INS_ALLOC_STACK,
 			data: int64(stackSize),
 		}
 
