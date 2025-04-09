@@ -4,18 +4,6 @@ import (
 	"fmt"
 )
 
-// ExpressionKind represents different types of expressions
-type ExpressionKind int
-
-const (
-	EXP_UNARY ExpressionKind = iota
-	EXP_INTEGER
-	EXP_BINARY
-	EXP_ASSIGN
-	EXP_VAR
-	EXP_COND
-)
-
 type CondExpr struct {
 	left   *Expression
 	middle *Expression
@@ -40,7 +28,6 @@ type AssignExpr struct {
 
 // Expression represents a C expression
 type Expression struct {
-	kind ExpressionKind
 	data any
 }
 
@@ -61,29 +48,6 @@ var precedences = map[Token]int{
 	TOK_QUESTION: 3,
 	TOK_ASSIGN:   1,
 }
-
-// StatementKind represents different types of statements
-type StatementKind int
-
-const (
-	STMT_RETURN StatementKind = iota
-	STMT_IF
-	STMT_EXPR
-	STMT_NULL
-	STMT_COMPOUND
-	STMT_CONTINUE
-	STMT_BREAK
-	STMT_WHILE
-	STMT_DOWHILE
-	STMT_FOR
-)
-
-type BlockKind int
-
-const (
-	BLOCK_KIND_STMT BlockKind = iota
-	BLOCK_KIND_DECL
-)
 
 type ReturnStatement struct {
 	expr *Expression
@@ -117,7 +81,6 @@ type ForStatement struct {
 
 // Statement represents a C expression
 type Statement struct {
-	kind StatementKind
 	data any
 }
 
@@ -135,7 +98,6 @@ type Declaration struct {
 }
 
 type BlockItem struct {
-	kind BlockKind
 	data any
 }
 
@@ -189,7 +151,6 @@ func (p *Parser) parseIfStatement() *Statement {
 	}
 
 	return &Statement{
-		kind: STMT_IF,
 		data: &IfStatement{
 			cond:      cond,
 			then:      then,
@@ -206,7 +167,6 @@ func (p *Parser) parseStatement() *Statement {
 		p.expect(SEMICOLON)
 
 		return &Statement{
-			kind: STMT_RETURN,
 			data: &ReturnStatement{
 				expr: expr,
 			},
@@ -215,15 +175,12 @@ func (p *Parser) parseStatement() *Statement {
 		return p.parseIfStatement()
 	case SEMICOLON:
 		p.idx += 1
-		return &Statement{
-			kind: STMT_NULL,
-		}
+		return &Statement{data: nil}
 	case OPEN_BRACE:
 		p.idx += 1
 		block := p.parseBlock()
 
 		return &Statement{
-			kind: STMT_COMPOUND,
 			data: &Compound{
 				block: block,
 			},
@@ -232,14 +189,12 @@ func (p *Parser) parseStatement() *Statement {
 		p.idx += 1
 		p.expect(SEMICOLON)
 		return &Statement{
-			kind: STMT_BREAK,
 			data: &Break{},
 		}
 	case TOK_CONTINUE:
 		p.idx += 1
 		p.expect(SEMICOLON)
 		return &Statement{
-			kind: STMT_CONTINUE,
 			data: &Continue{},
 		}
 	case TOK_DO:
@@ -253,7 +208,6 @@ func (p *Parser) parseStatement() *Statement {
 		p.expect(SEMICOLON)
 
 		return &Statement{
-			kind: STMT_DOWHILE,
 			data: &DoWhileStatement{
 				cond: cond,
 				body: stmt,
@@ -267,7 +221,6 @@ func (p *Parser) parseStatement() *Statement {
 
 		body := p.parseStatement()
 		return &Statement{
-			kind: STMT_WHILE,
 			data: &WhileStatement{
 				cond: cond,
 				body: body,
@@ -280,7 +233,6 @@ func (p *Parser) parseStatement() *Statement {
 	expr := p.parseExpr(0)
 	p.expect(SEMICOLON)
 	return &Statement{
-		kind: STMT_EXPR,
 		data: expr,
 	}
 }
@@ -292,19 +244,16 @@ func (p *Parser) parseFactor() *Expression {
 	switch tok.Kind {
 	case TOK_IDENT:
 		return &Expression{
-			kind: EXP_VAR,
 			data: tok.Value.(string),
 		}
 	case TOK_CONSTANT:
 		return &Expression{
-			kind: EXP_INTEGER,
 			data: tok.Value.(int64),
 		}
 	case TILDE, MINUS, TOK_BANG:
 		op := tok.Kind
 		innerExpr := p.parseFactor()
 		return &Expression{
-			kind: EXP_UNARY,
 			data: &UnaryExpr{
 				operator: op,
 				expr:     innerExpr,
@@ -347,7 +296,6 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 			p.idx++ // skip the assign symbol
 			right := p.parseExpr(pred)
 			left = &Expression{
-				kind: EXP_ASSIGN,
 				data: &AssignExpr{
 					lvalue: left,
 					avalue: right,
@@ -357,7 +305,6 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 			middle := p.parseConditionalMiddle()
 			right := p.parseExpr(pred)
 			left = &Expression{
-				kind: EXP_COND,
 				data: &CondExpr{
 					left,
 					middle,
@@ -369,7 +316,6 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 			right := p.parseExpr(pred + 1)
 
 			left = &Expression{
-				kind: EXP_BINARY,
 				data: &BinaryExpr{
 					operator: next,
 					lhs:      left,
@@ -441,7 +387,6 @@ func (p *Parser) parseForStatement() *Statement {
 	body := p.parseStatement()
 
 	return &Statement{
-		kind: STMT_FOR,
 		data: &ForStatement{
 			init: init,
 			cond: cond,
@@ -462,16 +407,13 @@ func (p *Parser) parseBlock() *Block {
 		if currTok == INT_KEYWORD {
 			decl := p.parseDecl()
 			body = append(body, BlockItem{
-				kind: BLOCK_KIND_DECL,
 				data: decl,
 			})
 		} else if currTok == OPEN_BRACE {
 			p.idx += 1
 			block := p.parseBlock()
 			body = append(body, BlockItem{
-				kind: BLOCK_KIND_STMT,
 				data: &Statement{
-					kind: STMT_COMPOUND,
 					data: &Compound{
 						block: block,
 					},
@@ -480,7 +422,6 @@ func (p *Parser) parseBlock() *Block {
 		} else {
 			stmt := p.parseStatement()
 			body = append(body, BlockItem{
-				kind: BLOCK_KIND_STMT,
 				data: stmt,
 			})
 		}

@@ -183,13 +183,12 @@ func (g *IrGenerator) Generate(program *Program) *IrProgram {
 
 func (g *IrGenerator) generateBlock(block *Block, instructions *[]*IrInstruction) {
 	for _, block := range block.items {
-		if block.kind == BLOCK_KIND_DECL {
-			decl := block.data.(*Declaration)
-			g.generateDecl(decl, instructions)
-			continue
+		switch bt := block.data.(type) {
+		case *Declaration:
+			g.generateDecl(bt, instructions)
+		case *Statement:
+			g.generateStatement(bt, instructions)
 		}
-
-		g.generateStatement(block.data.(*Statement), instructions)
 	}
 }
 
@@ -197,10 +196,8 @@ func (g *IrGenerator) generateDecl(decl *Declaration, instructions *[]*IrInstruc
 	// we only need to generate something if the declaration contains a initializer
 	if decl.init != nil {
 		g.generateExpression(&Expression{
-			kind: EXP_ASSIGN,
 			data: &AssignExpr{
 				lvalue: &Expression{
-					kind: EXP_VAR,
 					data: decl.identifier,
 				},
 				avalue: decl.init,
@@ -220,20 +217,16 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 			addRet = true
 		}
 
-		if len(fnDef.body.items) > 0 && fnDef.body.items[len(fnDef.body.items)-1].kind != BLOCK_KIND_STMT {
-			addRet = true
-		}
-
-		if len(fnDef.body.items) > 0 && fnDef.body.items[len(fnDef.body.items)-1].data.(*Statement).kind != STMT_RETURN {
-			addRet = true
+		if len(fnDef.body.items) > 0 {
+			if _, ok := fnDef.body.items[len(fnDef.body.items)-1].data.(*Statement).data.(*ReturnStatement); !ok {
+				addRet = true
+			}
 		}
 
 		if addRet {
 			g.generateStatement(&Statement{
-				kind: STMT_RETURN,
 				data: &ReturnStatement{
 					expr: &Expression{
-						kind: EXP_INTEGER,
 						data: int64(0),
 					},
 				},
@@ -257,10 +250,7 @@ func (g *IrGenerator) generateIfStatement(ifst *IfStatement, instructions *[]*Ir
 		})
 
 		g.generateStatement(ifst.then, instructions)
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: endLabel,
-		})
+		g.addLabel(endLabel, instructions)
 	} else {
 		endLabel := g.newLabel()
 		elseLabel := g.newLabel()
@@ -277,34 +267,23 @@ func (g *IrGenerator) generateIfStatement(ifst *IfStatement, instructions *[]*Ir
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_JUMP,
 			data: endLabel,
-		}, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: elseLabel,
 		})
+		g.addLabel(elseLabel, instructions)
 
 		g.generateStatement(ifst.otherwise, instructions)
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: endLabel,
-		})
+		g.addLabel(endLabel, instructions)
 	}
 }
 
 func (g *IrGenerator) generateDoWhile(doWhile *DoWhileStatement, instructions *[]*IrInstruction) {
 	startLabel := g.newLabel()
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: startLabel,
-	})
+	g.addLabel(startLabel, instructions)
 
 	breakLabel := "break" + doWhile.identifier
 	continueLabel := "continue" + doWhile.identifier
 
 	g.generateStatement(doWhile.body, instructions)
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: continueLabel,
-	})
+	g.addLabel(continueLabel, instructions)
 	v1 := g.generateExpression(doWhile.cond, instructions)
 
 	*instructions = append(*instructions, &IrInstruction{
@@ -313,19 +292,14 @@ func (g *IrGenerator) generateDoWhile(doWhile *DoWhileStatement, instructions *[
 			target:    startLabel,
 			condition: v1,
 		},
-	}, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: breakLabel,
 	})
+	g.addLabel(breakLabel, instructions)
 }
 
 func (g *IrGenerator) generateWhile(whileStmt *WhileStatement, instructions *[]*IrInstruction) {
 	breakLabel := "break" + whileStmt.identifier
 	continueLabel := "continue" + whileStmt.identifier
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: continueLabel,
-	})
+	g.addLabel(continueLabel, instructions)
 	v1 := g.generateExpression(whileStmt.cond, instructions)
 
 	*instructions = append(*instructions, &IrInstruction{
@@ -337,13 +311,8 @@ func (g *IrGenerator) generateWhile(whileStmt *WhileStatement, instructions *[]*
 	})
 	g.generateStatement(whileStmt.body, instructions)
 
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP,
-		data: continueLabel,
-	}, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: breakLabel,
-	})
+	g.addJump(continueLabel, instructions)
+	g.addLabel(breakLabel, instructions)
 }
 
 func (g *IrGenerator) generateFor(forStmt *ForStatement, instructions *[]*IrInstruction) {
@@ -358,11 +327,7 @@ func (g *IrGenerator) generateFor(forStmt *ForStatement, instructions *[]*IrInst
 	labelStart := g.newLabel()
 	breakLabel := "break" + forStmt.identifier
 	continueLabel := "continue" + forStmt.identifier
-
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: labelStart,
-	})
+	g.addLabel(labelStart, instructions)
 
 	if forStmt.cond != nil {
 		v1 := g.generateExpression(forStmt.cond, instructions)
@@ -385,51 +350,37 @@ func (g *IrGenerator) generateFor(forStmt *ForStatement, instructions *[]*IrInst
 	}
 
 	g.generateStatement(forStmt.body, instructions)
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: continueLabel,
-	})
+	g.addLabel(continueLabel, instructions)
 
 	if forStmt.post != nil {
 		g.generateExpression(forStmt.post, instructions)
 	}
 
-	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP,
-		data: labelStart,
-	}, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: breakLabel,
-	})
+	g.addJump(labelStart, instructions)
+	g.addLabel(breakLabel, instructions)
 }
 
 func (g *IrGenerator) generateStatement(stmt *Statement, instructions *[]*IrInstruction) {
-	switch stmt.kind {
-	case STMT_RETURN:
-		val := g.generateExpression(stmt.data.(*ReturnStatement).expr, instructions)
+	switch s := stmt.data.(type) {
+	case *ReturnStatement:
+		val := g.generateExpression(s.expr, instructions)
 		*instructions = append(*instructions, NewIrReturnInstruction(val))
-	case STMT_EXPR:
-		g.generateExpression(stmt.data.(*Expression), instructions)
-	case STMT_IF:
-		g.generateIfStatement(stmt.data.(*IfStatement), instructions)
-	case STMT_COMPOUND:
-		g.generateBlock(stmt.data.(*Compound).block, instructions)
-	case STMT_CONTINUE:
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP,
-			data: "continue" + stmt.data.(*Continue).identifier,
-		})
-	case STMT_BREAK:
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP,
-			data: "break" + stmt.data.(*Break).identifier,
-		})
-	case STMT_DOWHILE:
-		g.generateDoWhile(stmt.data.(*DoWhileStatement), instructions)
-	case STMT_WHILE:
-		g.generateWhile(stmt.data.(*WhileStatement), instructions)
-	case STMT_FOR:
-		g.generateFor(stmt.data.(*ForStatement), instructions)
+	case *Expression:
+		g.generateExpression(s, instructions)
+	case *IfStatement:
+		g.generateIfStatement(s, instructions)
+	case *Compound:
+		g.generateBlock(s.block, instructions)
+	case *Continue:
+		g.addJump("continue"+s.identifier, instructions)
+	case *Break:
+		g.addJump("break"+s.identifier, instructions)
+	case *DoWhileStatement:
+		g.generateDoWhile(s, instructions)
+	case *WhileStatement:
+		g.generateWhile(s, instructions)
+	case *ForStatement:
+		g.generateFor(s, instructions)
 	}
 }
 
@@ -490,15 +441,8 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP,
-			data: endLabel,
-		})
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: falseLabel,
-		})
+		g.addJump(endLabel, instructions)
+		g.addLabel(falseLabel, instructions)
 
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_COPY,
@@ -507,11 +451,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 				dst: resultVar,
 			},
 		})
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: endLabel,
-		})
+		g.addLabel(endLabel, instructions)
 	} else if binExpr.operator == TOK_OR {
 		trueLabel := g.newLabel()
 		v1 := g.generateExpression(binExpr.lhs, instructions)
@@ -533,15 +473,8 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP,
-			data: trueLabel,
-		})
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: falseLabel,
-		})
+		g.addJump(trueLabel, instructions)
+		g.addLabel(falseLabel, instructions)
 
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_COPY,
@@ -551,15 +484,8 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP,
-			data: endLabel,
-		})
-
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: trueLabel,
-		})
+		g.addJump(endLabel, instructions)
+		g.addLabel(trueLabel, instructions)
 
 		*instructions = append(*instructions, &IrInstruction{
 			kind: IR_INSTRUCTION_COPY,
@@ -569,10 +495,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 			},
 		})
 
-		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_LABEL,
-			data: endLabel,
-		})
+		g.addLabel(endLabel, instructions)
 	}
 
 	return resultVar
@@ -600,13 +523,9 @@ func (g *IrGenerator) generateConditionalExpr(expr *CondExpr, instructions *[]*I
 			src: v1,
 			dst: res,
 		},
-	}, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP,
-		data: endLabel,
-	}, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: e2Label,
 	})
+	g.addJump(endLabel, instructions)
+	g.addLabel(e2Label, instructions)
 
 	v2 := g.generateExpression(expr.right, instructions)
 	*instructions = append(*instructions, &IrInstruction{
@@ -615,10 +534,8 @@ func (g *IrGenerator) generateConditionalExpr(expr *CondExpr, instructions *[]*I
 			src: v2,
 			dst: res,
 		},
-	}, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: endLabel,
 	})
+	g.addLabel(endLabel, instructions)
 
 	return res
 }
@@ -674,13 +591,13 @@ func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrIn
 }
 
 func (g *IrGenerator) generateAssign(assign *AssignExpr, instructions *[]*IrInstruction) *IrVal {
-	if assign.lvalue.kind != EXP_VAR {
+	lval, ok := assign.lvalue.data.(string)
+	if !ok {
 		panic("assignment operations left hand side needs to be a variable")
 	}
-
 	res := g.generateExpression(assign.avalue, instructions)
 
-	irVar := NewIrVar(assign.lvalue.data.(string))
+	irVar := NewIrVar(lval)
 	*instructions = append(*instructions, &IrInstruction{
 		kind: IR_INSTRUCTION_COPY,
 		data: &IrCopyInstruction{
@@ -693,20 +610,19 @@ func (g *IrGenerator) generateAssign(assign *AssignExpr, instructions *[]*IrInst
 }
 
 func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrInstruction) *IrVal {
-	fmt.Println("generating expression of kind", expr.kind)
-	switch expr.kind {
-	case EXP_INTEGER:
-		return NewIrConstant(expr.data.(int64))
-	case EXP_UNARY:
-		return g.generateUnary(expr.data.(*UnaryExpr), instructions)
-	case EXP_BINARY:
-		return g.generateBinaryExpr(expr.data.(*BinaryExpr), instructions)
-	case EXP_ASSIGN:
-		return g.generateAssign(expr.data.(*AssignExpr), instructions)
-	case EXP_VAR:
-		return NewIrVar(expr.data.(string))
-	case EXP_COND:
-		return g.generateConditionalExpr(expr.data.(*CondExpr), instructions)
+	switch e := expr.data.(type) {
+	case int64:
+		return NewIrConstant(e)
+	case *UnaryExpr:
+		return g.generateUnary(e, instructions)
+	case *BinaryExpr:
+		return g.generateBinaryExpr(e, instructions)
+	case *AssignExpr:
+		return g.generateAssign(e, instructions)
+	case string:
+		return NewIrVar(e)
+	case *CondExpr:
+		return g.generateConditionalExpr(e, instructions)
 	default:
 		panic("unsupported expression kind in IR generator")
 	}
@@ -723,4 +639,18 @@ func (g *IrGenerator) newLabel() string {
 	g.labelCount++
 
 	return labelName
+}
+
+func (g *IrGenerator) addLabel(label string, instructions *[]*IrInstruction) {
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_LABEL,
+		data: label,
+	})
+}
+
+func (g *IrGenerator) addJump(target string, instructions *[]*IrInstruction) {
+	*instructions = append(*instructions, &IrInstruction{
+		kind: IR_INSTRUCTION_JUMP,
+		data: target,
+	})
 }

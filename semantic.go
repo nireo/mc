@@ -57,71 +57,60 @@ func (s *SemanticAnalyzer) resolveDecl(decl *Declaration, variables map[string]S
 }
 
 func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]SymbolInfo) {
-	switch expr.kind {
-	case EXP_ASSIGN:
-		assign := expr.data.(*AssignExpr)
-		if assign.lvalue.kind != EXP_VAR {
+	switch e := expr.data.(type) {
+	case *AssignExpr:
+		if _, ok := e.lvalue.data.(string); !ok {
 			panic("invalid lvalue")
 		}
 
-		s.resolveExpr(assign.lvalue, variables)
-		s.resolveExpr(assign.avalue, variables)
-	case EXP_COND:
+		s.resolveExpr(e.lvalue, variables)
+		s.resolveExpr(e.avalue, variables)
+	case *CondExpr:
 		cond := expr.data.(*CondExpr)
 		s.resolveExpr(cond.left, variables)
 		s.resolveExpr(cond.middle, variables)
 		s.resolveExpr(cond.right, variables)
-	case EXP_VAR:
-		name := expr.data.(string)
-		if si, ok := variables[name]; ok {
+	case string:
+		if si, ok := variables[e]; ok {
 			expr.data = si.name
 		} else {
 			panic("undeclared variable")
 		}
-	case EXP_BINARY:
-		bin := expr.data.(*BinaryExpr)
-		s.resolveExpr(bin.lhs, variables)
-		s.resolveExpr(bin.rhs, variables)
-	case EXP_UNARY:
-		unary := expr.data.(*UnaryExpr)
-		s.resolveExpr(unary.expr, variables)
+	case *BinaryExpr:
+		s.resolveExpr(e.lhs, variables)
+		s.resolveExpr(e.rhs, variables)
+	case *UnaryExpr:
+		s.resolveExpr(e.expr, variables)
 	}
 }
 
 func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[string]SymbolInfo) {
-	switch stmt.kind {
-	case STMT_RETURN:
-		ret := stmt.data.(*ReturnStatement)
-		s.resolveExpr(ret.expr, variables)
-	case STMT_EXPR:
-		e := stmt.data.(*Expression)
-		s.resolveExpr(e, variables)
-	case STMT_IF:
-		ifs := stmt.data.(*IfStatement)
-		s.resolveExpr(ifs.cond, variables)
-		s.resolveStatement(ifs.then, variables)
 
-		if ifs.otherwise != nil {
-			s.resolveStatement(ifs.otherwise, variables)
+	switch st := stmt.data.(type) {
+	case *ReturnStatement:
+		s.resolveExpr(st.expr, variables)
+	case *Expression:
+		s.resolveExpr(st, variables)
+	case *IfStatement:
+		s.resolveExpr(st.cond, variables)
+		s.resolveStatement(st.then, variables)
+
+		if st.otherwise != nil {
+			s.resolveStatement(st.otherwise, variables)
 		}
-	case STMT_COMPOUND:
-		comp := stmt.data.(*Compound)
+	case *Compound:
 		newVariables := copyVariables(variables)
-		s.resolveBlock(comp.block, newVariables)
-	case STMT_WHILE:
-		comp := stmt.data.(*WhileStatement)
-		s.resolveExpr(comp.cond, variables)
-		s.resolveStatement(comp.body, variables)
-	case STMT_DOWHILE:
-		comp := stmt.data.(*DoWhileStatement)
-		s.resolveExpr(comp.cond, variables)
-		s.resolveStatement(comp.body, variables)
-	case STMT_FOR:
+		s.resolveBlock(st.block, newVariables)
+	case *DoWhileStatement:
+		s.resolveExpr(st.cond, variables)
+		s.resolveStatement(st.body, variables)
+	case *WhileStatement:
+		s.resolveExpr(st.cond, variables)
+		s.resolveStatement(st.body, variables)
+	case *ForStatement:
 		newVariables := copyVariables(variables)
-		forStmt := stmt.data.(*ForStatement)
-
-		if forStmt.init != nil {
-			switch v := forStmt.init.(type) {
+		if st.init != nil {
+			switch v := st.init.(type) {
 			case *Expression:
 				s.resolveExpr(v, newVariables)
 			case *Declaration:
@@ -129,26 +118,25 @@ func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[strin
 			}
 		}
 
-		if forStmt.cond != nil {
-			s.resolveExpr(forStmt.cond, newVariables)
+		if st.cond != nil {
+			s.resolveExpr(st.cond, newVariables)
+		}
+		if st.post != nil {
+			s.resolveExpr(st.post, newVariables)
 		}
 
-		if forStmt.post != nil {
-			s.resolveExpr(forStmt.post, newVariables)
-		}
-
-		s.resolveStatement(forStmt.body, newVariables)
+		s.resolveStatement(st.body, newVariables)
 	}
 }
 
 func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]SymbolInfo) {
 	for _, item := range block.items {
-		if item.kind == BLOCK_KIND_STMT {
-			stmt := item.data.(*Statement)
-			s.resolveStatement(stmt, variables)
-			s.labelLoops(stmt, "")
-		} else if item.kind == BLOCK_KIND_DECL {
-			s.resolveDecl(item.data.(*Declaration), variables)
+		switch bt := item.data.(type) {
+		case *Statement:
+			s.resolveStatement(bt, variables)
+			s.labelLoops(bt, "")
+		case *Declaration:
+			s.resolveDecl(bt, variables)
 		}
 	}
 }
@@ -159,32 +147,29 @@ func (s *SemanticAnalyzer) resolveFunctionDef(fnDef *FunctionDef) {
 }
 
 func (s *SemanticAnalyzer) labelLoops(stmt *Statement, currLabel string) {
-	switch stmt.kind {
-	case STMT_BREAK:
-		if currLabel == "" {
-			panic("break statement outside of loop")
-		}
-		stmt.data.(*Break).identifier = currLabel
-	case STMT_CONTINUE:
+	switch st := stmt.data.(type) {
+	case *Continue:
 		if currLabel == "" {
 			panic("continue statement outside of loop")
 		}
-		stmt.data.(*Continue).identifier = currLabel
-	case STMT_WHILE:
-		whileStmt := stmt.data.(*WhileStatement)
+		st.identifier = currLabel
+	case *Break:
+		if currLabel == "" {
+			panic("break statement outside of loop")
+		}
+		st.identifier = currLabel
+	case *DoWhileStatement:
 		newLabel := s.newUniqueName()
-		s.labelLoops(whileStmt.body, newLabel)
-		whileStmt.identifier = newLabel
-	case STMT_DOWHILE:
-		whileStmt := stmt.data.(*DoWhileStatement)
+		s.labelLoops(st.body, newLabel)
+		st.identifier = newLabel
+	case *WhileStatement:
 		newLabel := s.newUniqueName()
-		s.labelLoops(whileStmt.body, newLabel)
-		whileStmt.identifier = newLabel
-	case STMT_FOR:
-		forStmt := stmt.data.(*ForStatement)
+		s.labelLoops(st.body, newLabel)
+		st.identifier = newLabel
+	case *ForStatement:
 		newLabel := s.newUniqueName()
-		s.labelLoops(forStmt.body, newLabel)
-		forStmt.identifier = newLabel
+		s.labelLoops(st.body, newLabel)
+		st.identifier = newLabel
 	}
 }
 
