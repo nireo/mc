@@ -67,19 +67,6 @@ func (v *IrVal) IsConstant() bool {
 	return v.kind == IR_VAL_CONSTANT
 }
 
-type IrInstructionKind int
-
-const (
-	IR_INSTRUCTION_RETURN IrInstructionKind = iota
-	IR_INSTRUCTION_UNARY
-	IR_INSTRUCTION_BINARY
-	IR_INSTRUCTION_COPY
-	IR_INSTRUCTION_JUMP
-	IR_INSTRUCTION_JUMP_IF_ZERO
-	IR_INSTRUCTION_JUMP_IF_NOT_ZERO
-	IR_INSTRUCTION_LABEL
-)
-
 type IrReturnInstruction struct {
 	val *IrVal
 }
@@ -102,6 +89,14 @@ type IrCopyInstruction struct {
 	dst *IrVal
 }
 
+type IrLabel struct {
+	label string
+}
+
+type IrJump struct {
+	target string
+}
+
 type IrJumpIfZero struct {
 	condition *IrVal
 	target    string // label
@@ -113,13 +108,11 @@ type IrJumpIfNotZero struct {
 }
 
 type IrInstruction struct {
-	kind IrInstructionKind
 	data any
 }
 
 func NewIrReturnInstruction(val *IrVal) *IrInstruction {
 	return &IrInstruction{
-		kind: IR_INSTRUCTION_RETURN,
 		data: &IrReturnInstruction{
 			val: val,
 		},
@@ -132,7 +125,6 @@ func NewIrUnaryInstruction(operator IrOperator, src, dst *IrVal) *IrInstruction 
 	}
 
 	return &IrInstruction{
-		kind: IR_INSTRUCTION_UNARY,
 		data: &IrUnaryInstruction{
 			operator: operator,
 			src:      src,
@@ -282,7 +274,6 @@ func (g *IrGenerator) generateDoWhile(doWhile *DoWhileStatement, instructions *[
 	v1 := g.generateExpression(doWhile.cond, instructions)
 
 	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
 		data: &IrJumpIfNotZero{
 			target:    startLabel,
 			condition: v1,
@@ -407,7 +398,6 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 		v1 := g.generateExpression(binExpr.lhs, instructions)
 
 		*instructions = append(*instructions, &IrInstruction{
-			kind: IR_INSTRUCTION_JUMP_IF_NOT_ZERO,
 			data: &IrJumpIfNotZero{
 				condition: v1,
 				target:    trueLabel,
@@ -488,7 +478,6 @@ func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrIn
 	}
 
 	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_BINARY,
 		data: &IrBinaryInstruction{
 			operator: irOp,
 			src1:     v1,
@@ -547,21 +536,22 @@ func (g *IrGenerator) newLabel() string {
 
 func (g *IrGenerator) addLabel(label string, instructions *[]*IrInstruction) {
 	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_LABEL,
-		data: label,
+		data: &IrLabel{
+			label: label,
+		},
 	})
 }
 
 func (g *IrGenerator) addJump(target string, instructions *[]*IrInstruction) {
 	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP,
-		data: target,
+		data: &IrJump{
+			target: target,
+		},
 	})
 }
 
 func (g *IrGenerator) addCopy(src *IrVal, dst *IrVal, instructions *[]*IrInstruction) {
 	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_COPY,
 		data: &IrCopyInstruction{
 			src: src,
 			dst: dst,
@@ -571,7 +561,6 @@ func (g *IrGenerator) addCopy(src *IrVal, dst *IrVal, instructions *[]*IrInstruc
 
 func (g *IrGenerator) jumpIfZero(target string, condition *IrVal, instructions *[]*IrInstruction) {
 	*instructions = append(*instructions, &IrInstruction{
-		kind: IR_INSTRUCTION_JUMP_IF_ZERO,
 		data: &IrJumpIfZero{
 			target:    target,
 			condition: condition,

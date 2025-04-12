@@ -405,118 +405,106 @@ func (ib *InstructionBuilder) fixInstructions() {
 }
 
 func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
-	switch ins.kind {
-	case IR_INSTRUCTION_RETURN:
-		retIr := ins.data.(*IrReturnInstruction)
-		ib.emit(newMov(toOperand(retIr.val), Operand{kind: OPERAND_REG_AX}), Instruction{data: &Ret{}})
-	case IR_INSTRUCTION_UNARY:
-		unaryIr := ins.data.(*IrUnaryInstruction)
-		if unaryIr.operator == IR_UNARY_NOT {
+	switch in := ins.data.(type) {
+	case *IrReturnInstruction:
+		ib.emit(newMov(toOperand(in.val), Operand{kind: OPERAND_REG_AX}), Instruction{data: &Ret{}})
+	case *IrUnaryInstruction:
+		if in.operator == IR_UNARY_NOT {
 			ib.emit(Instruction{
 				data: &Cmp{
 					a: Operand{kind: OPERAND_IMM, imm: 0},
-					b: toOperand(unaryIr.src),
+					b: toOperand(in.src),
 				},
-			}, newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(unaryIr.dst)),
+			}, newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(in.dst)),
 				Instruction{
 					data: &SetCC{
 						condCode: COND_E,
-						a:        toOperand(unaryIr.dst),
+						a:        toOperand(in.dst),
 					},
 				})
 		} else {
-			ib.emit(newMov(toOperand(unaryIr.src), toOperand(unaryIr.dst)), Instruction{
+			ib.emit(newMov(toOperand(in.src), toOperand(in.dst)), Instruction{
 				data: &UnaryInstruction{
-					op:      convertIrOperator(unaryIr.operator),
-					operand: toOperand(unaryIr.dst),
+					op:      convertIrOperator(in.operator),
+					operand: toOperand(in.dst),
 				},
 			})
 		}
-	case IR_INSTRUCTION_BINARY:
-		binaryIr := ins.data.(*IrBinaryInstruction)
-		if binaryIr.operator == IR_BIN_DIV {
-			ib.emit(newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
+	case *IrBinaryInstruction:
+		if in.operator == IR_BIN_DIV {
+			ib.emit(newMov(toOperand(in.src1), Operand{kind: OPERAND_REG_AX}),
 				Instruction{data: &Cdq{}},
 				Instruction{
 					data: &Idivl{
-						op: toOperand(binaryIr.src2),
+						op: toOperand(in.src2),
 					},
 				},
-				newMov(Operand{kind: OPERAND_REG_AX}, toOperand(binaryIr.dst)),
+				newMov(Operand{kind: OPERAND_REG_AX}, toOperand(in.dst)),
 			)
-		} else if binaryIr.operator == IR_BIN_REMAINDER {
-			ib.emit(newMov(toOperand(binaryIr.src1), Operand{kind: OPERAND_REG_AX}),
+		} else if in.operator == IR_BIN_REMAINDER {
+			ib.emit(newMov(toOperand(in.src1), Operand{kind: OPERAND_REG_AX}),
 				Instruction{data: &Cdq{}},
 				Instruction{
 					data: &Idivl{
-						op: toOperand(binaryIr.src2),
+						op: toOperand(in.src2),
 					},
 				},
-				newMov(Operand{kind: OPERAND_REG_DX}, toOperand(binaryIr.dst)),
+				newMov(Operand{kind: OPERAND_REG_DX}, toOperand(in.dst)),
 			)
-		} else if condCode, ok := relToCondCode[binaryIr.operator]; ok {
+		} else if condCode, ok := relToCondCode[in.operator]; ok {
 			ib.emit(Instruction{
 				data: &Cmp{
-					a: toOperand(binaryIr.src2),
-					b: toOperand(binaryIr.src1),
+					a: toOperand(in.src2),
+					b: toOperand(in.src1),
 				},
 			},
-				newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(binaryIr.dst)),
+				newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(in.dst)),
 				Instruction{
 					data: &SetCC{
 						condCode: condCode,
-						a:        toOperand(binaryIr.dst),
+						a:        toOperand(in.dst),
 					},
 				})
 		} else {
-			ib.emit(newMov(toOperand(binaryIr.src1), toOperand(binaryIr.dst)),
+			ib.emit(newMov(toOperand(in.src1), toOperand(in.dst)),
 				Instruction{
 					data: &BinaryInstruction{
-						op: convertIrOperator(binaryIr.operator),
-						a:  toOperand(binaryIr.src2),
-						b:  toOperand(binaryIr.dst),
+						op: convertIrOperator(in.operator),
+						a:  toOperand(in.src2),
+						b:  toOperand(in.dst),
 					},
 				})
 		}
-	case IR_INSTRUCTION_JUMP:
-		jumpLabel := ins.data.(string)
-		ib.emit(Instruction{
-			data: &Jmp{
-				identifier: jumpLabel,
-			},
-		})
-	case IR_INSTRUCTION_JUMP_IF_ZERO:
-		jumpIfZero := ins.data.(*IrJumpIfZero)
+	case *IrJump:
+		ib.emit(Instruction{data: &Jmp{identifier: in.target}})
+	case *IrJumpIfZero:
 		ib.emit(Instruction{
 			data: &Cmp{
 				a: Operand{kind: OPERAND_IMM, imm: 0},
-				b: toOperand(jumpIfZero.condition),
+				b: toOperand(in.condition),
 			},
 		}, Instruction{
 			data: &JmpCC{
 				condCode:   COND_E,
-				identifier: jumpIfZero.target,
+				identifier: in.target,
 			},
 		})
-	case IR_INSTRUCTION_JUMP_IF_NOT_ZERO:
-		jmpifn0 := ins.data.(*IrJumpIfNotZero)
+	case *IrJumpIfNotZero:
 		ib.emit(Instruction{
 			data: &Cmp{
 				a: Operand{kind: OPERAND_IMM, imm: 0},
-				b: toOperand(jmpifn0.condition),
+				b: toOperand(in.condition),
 			},
 		}, Instruction{
 			data: &JmpCC{
 				condCode:   COND_NE,
-				identifier: jmpifn0.target,
+				identifier: in.target,
 			},
 		})
-	case IR_INSTRUCTION_COPY:
-		cpy := ins.data.(*IrCopyInstruction)
-		ib.emit(newMov(toOperand(cpy.src), toOperand(cpy.dst)))
-	case IR_INSTRUCTION_LABEL:
-		label := ins.data.(string)
-		ib.emit(Instruction{data: label})
+	case *IrCopyInstruction:
+		ib.emit(newMov(toOperand(in.src), toOperand(in.dst)))
+	case *IrLabel:
+		ib.emit(Instruction{data: in.label})
 	}
 }
 
