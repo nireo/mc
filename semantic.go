@@ -19,7 +19,10 @@ type SemanticAnalyzer struct {
 type SymbolInfo struct {
 	name             string
 	fromCurrentScope bool
+	hasLinkage       bool
 }
+
+type Identifiers map[string]SymbolInfo
 
 func (s *SemanticAnalyzer) newUniqueName() string {
 	unique := fmt.Sprintf("U%d", s.uniqueVarCount)
@@ -28,130 +31,129 @@ func (s *SemanticAnalyzer) newUniqueName() string {
 	return unique
 }
 
-func copyVariables(variables map[string]SymbolInfo) map[string]SymbolInfo {
-	newVariables := make(map[string]SymbolInfo, len(variables))
-	for name, info := range variables {
+func copyidentifiers(identifiers Identifiers) Identifiers {
+	newidentifiers := make(Identifiers, len(identifiers))
+	for name, info := range identifiers {
 		info.fromCurrentScope = false
-		newVariables[name] = info
+		newidentifiers[name] = info
 	}
-	return newVariables
+	return newidentifiers
 }
 
-func (s *SemanticAnalyzer) resolveDecl(decl *Declaration, variables map[string]SymbolInfo) {
-	vd, ok := decl.data.(*VarDecl)
-	if !ok {
-		panic("trying to resolve function decl")
-	}
+func (s *SemanticAnalyzer) resolveDecl(decl *Declaration, identifiers Identifiers) {
+	switch d := decl.data.(type) {
+	case *VarDecl:
+		// prevent identifiers what have the same name and that are from the same scope
+		if v, ok := identifiers[d.identifier]; ok && v.fromCurrentScope {
+			panic("duplicate veriable declaration")
+		}
 
-	// prevent variables what have the same name and that are from the same scope
-	if v, ok := variables[vd.identifier]; ok && v.fromCurrentScope {
-		panic("duplicate veriable declaration")
-	}
+		uniqueName := s.newUniqueName()
+		identifiers[d.identifier] = SymbolInfo{
+			name:             uniqueName,
+			fromCurrentScope: true,
+		}
 
-	uniqueName := s.newUniqueName()
-	variables[vd.identifier] = SymbolInfo{
-		name:             uniqueName,
-		fromCurrentScope: true,
+		if d.init != nil {
+			s.resolveExpr(d.init, identifiers)
+		}
+		d.identifier = uniqueName
+	case *FunctionDef:
+		s.resolveFuncDecl(d, identifiers)
 	}
-
-	if vd.init != nil {
-		s.resolveExpr(vd.init, variables)
-	}
-	vd.identifier = uniqueName
 }
 
-func (s *SemanticAnalyzer) resolveExpr(expr *Expression, variables map[string]SymbolInfo) {
+func (s *SemanticAnalyzer) resolveExpr(expr *Expression, identifiers Identifiers) {
 	switch e := expr.data.(type) {
 	case *AssignExpr:
 		if _, ok := e.lvalue.data.(string); !ok {
 			panic("invalid lvalue")
 		}
 
-		s.resolveExpr(e.lvalue, variables)
-		s.resolveExpr(e.avalue, variables)
+		s.resolveExpr(e.lvalue, identifiers)
+		s.resolveExpr(e.avalue, identifiers)
 	case *CondExpr:
 		cond := expr.data.(*CondExpr)
-		s.resolveExpr(cond.left, variables)
-		s.resolveExpr(cond.middle, variables)
-		s.resolveExpr(cond.right, variables)
+		s.resolveExpr(cond.left, identifiers)
+		s.resolveExpr(cond.middle, identifiers)
+		s.resolveExpr(cond.right, identifiers)
 	case string:
-		if si, ok := variables[e]; ok {
+		if si, ok := identifiers[e]; ok {
 			expr.data = si.name
 		} else {
 			panic("undeclared variable")
 		}
 	case *BinaryExpr:
-		s.resolveExpr(e.lhs, variables)
-		s.resolveExpr(e.rhs, variables)
+		s.resolveExpr(e.lhs, identifiers)
+		s.resolveExpr(e.rhs, identifiers)
 	case *UnaryExpr:
-		s.resolveExpr(e.expr, variables)
+		s.resolveExpr(e.expr, identifiers)
 	}
 }
 
-func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, variables map[string]SymbolInfo) {
-
+func (s *SemanticAnalyzer) resolveStatement(stmt *Statement, identifiers Identifiers) {
 	switch st := stmt.data.(type) {
 	case *ReturnStatement:
-		s.resolveExpr(st.expr, variables)
+		s.resolveExpr(st.expr, identifiers)
 	case *Expression:
-		s.resolveExpr(st, variables)
+		s.resolveExpr(st, identifiers)
 	case *IfStatement:
-		s.resolveExpr(st.cond, variables)
-		s.resolveStatement(st.then, variables)
+		s.resolveExpr(st.cond, identifiers)
+		s.resolveStatement(st.then, identifiers)
 
 		if st.otherwise != nil {
-			s.resolveStatement(st.otherwise, variables)
+			s.resolveStatement(st.otherwise, identifiers)
+		}
+	case *FunctionCall:
+		if fn, ok := identifiers[st.ident]; ok {
+			st.ident = fn.name
+			for _, arg := range st.args {
+				s.resolveExpr(arg, identifiers)
+			}
+		} else {
+			panic("call to undeclared function")
 		}
 	case *Compound:
-		newVariables := copyVariables(variables)
-		s.resolveBlock(st.block, newVariables)
+		newidentifiers := copyidentifiers(identifiers)
+		s.resolveBlock(st.block, newidentifiers)
 	case *DoWhileStatement:
-		s.resolveExpr(st.cond, variables)
-		s.resolveStatement(st.body, variables)
+		s.resolveExpr(st.cond, identifiers)
+		s.resolveStatement(st.body, identifiers)
 	case *WhileStatement:
-		s.resolveExpr(st.cond, variables)
-		s.resolveStatement(st.body, variables)
+		s.resolveExpr(st.cond, identifiers)
+		s.resolveStatement(st.body, identifiers)
 	case *ForStatement:
-		newVariables := copyVariables(variables)
+		newidentifiers := copyidentifiers(identifiers)
 		if st.init != nil {
 			switch v := st.init.(type) {
 			case *Expression:
-				s.resolveExpr(v, newVariables)
+				s.resolveExpr(v, newidentifiers)
 			case *Declaration:
-				s.resolveDecl(v, newVariables)
+				s.resolveDecl(v, newidentifiers)
 			}
 		}
 
 		if st.cond != nil {
-			s.resolveExpr(st.cond, newVariables)
+			s.resolveExpr(st.cond, newidentifiers)
 		}
 		if st.post != nil {
-			s.resolveExpr(st.post, newVariables)
+			s.resolveExpr(st.post, newidentifiers)
 		}
 
-		s.resolveStatement(st.body, newVariables)
+		s.resolveStatement(st.body, newidentifiers)
 	}
 }
 
-func (s *SemanticAnalyzer) resolveBlock(block *Block, variables map[string]SymbolInfo) {
+func (s *SemanticAnalyzer) resolveBlock(block *Block, identifiers Identifiers) {
 	for _, item := range block.items {
 		switch bt := item.data.(type) {
 		case *Statement:
-			s.resolveStatement(bt, variables)
+			s.resolveStatement(bt, identifiers)
 			s.labelLoops(bt, "")
 		case *Declaration:
-			s.resolveDecl(bt, variables)
+			s.resolveDecl(bt, identifiers)
 		}
 	}
-}
-
-func (s *SemanticAnalyzer) resolveFunctionDef(fnDef *FunctionDef) {
-	if fnDef.body == nil {
-		return
-	}
-
-	variables := make(map[string]SymbolInfo)
-	s.resolveBlock(fnDef.body, variables)
 }
 
 func (s *SemanticAnalyzer) labelLoops(stmt *Statement, currLabel string) {
@@ -181,10 +183,53 @@ func (s *SemanticAnalyzer) labelLoops(stmt *Statement, currLabel string) {
 	}
 }
 
+func (s *SemanticAnalyzer) resolveParam(param string, identifiers Identifiers) string {
+	if v, ok := identifiers[param]; ok && v.fromCurrentScope {
+		panic("parameter already defined")
+	}
+
+	uniqueName := s.newUniqueName()
+	identifiers[param] = SymbolInfo{
+		name:             uniqueName,
+		fromCurrentScope: true,
+		hasLinkage:       false,
+	}
+
+	return uniqueName
+}
+
+func (s *SemanticAnalyzer) resolveFuncDecl(fndef *FunctionDef, identifiers Identifiers) {
+	if info, ok := identifiers[fndef.identifier]; ok {
+		if info.fromCurrentScope && !info.hasLinkage {
+			panic("duplicate declaration")
+		}
+	}
+
+	identifiers[fndef.identifier] = SymbolInfo{
+		name:             fndef.identifier,
+		fromCurrentScope: true,
+		hasLinkage:       true,
+	}
+
+	innerMap := copyidentifiers(identifiers)
+	if len(fndef.params) > 0 {
+		newParams := make([]string, len(fndef.params))
+		for i, p := range fndef.params {
+			newParams[i] = s.resolveParam(p, innerMap)
+		}
+
+		fndef.params = newParams
+	}
+
+	if fndef.body != nil {
+		s.resolveBlock(fndef.body, innerMap)
+	}
+}
+
 func AnalyzeSemantic(prog *Program) {
 	s := SemanticAnalyzer{}
-
+	identifiers := make(map[string]SymbolInfo)
 	for _, fn := range prog.funcs {
-		s.resolveFunctionDef(fn)
+		s.resolveFuncDecl(fn, identifiers)
 	}
 }
