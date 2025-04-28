@@ -71,6 +71,11 @@ const (
 	OPERAND_REG_R9
 )
 
+func (o Operand) isRegister() bool {
+	return o.kind == OPERAND_REG_AX || o.kind == OPERAND_REG_DX || o.kind == OPERAND_REG_R10 || o.kind == OPERAND_REG_R11 ||
+		o.kind == OPERAND_REG_CX || o.kind == OPERAND_REG_DI || o.kind == OPERAND_REG_SI || o.kind == OPERAND_REG_R8 || o.kind == OPERAND_REG_R9
+}
+
 var oneByteRegisters = map[OperandKind]string{
 	OPERAND_REG_AX:  "%al",
 	OPERAND_REG_DX:  "%dl",
@@ -230,6 +235,18 @@ type Cmp struct {
 
 type Jmp struct {
 	identifier string
+}
+
+type Push struct {
+	op Operand
+}
+
+type Call struct {
+	ident string
+}
+
+type DeallocateStack struct {
+	bytesToRemove int64
 }
 
 type JmpCC struct {
@@ -514,6 +531,93 @@ func (ib *InstructionBuilder) fixInstructions() {
 	}
 
 	ib.insts = fixedInstructions
+}
+
+func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
+	argRegisters := []Operand{
+		{kind: OPERAND_REG_DI},
+		{kind: OPERAND_REG_SI},
+		{kind: OPERAND_REG_DX},
+		{kind: OPERAND_REG_CX},
+		{kind: OPERAND_REG_R8},
+		{kind: OPERAND_REG_R9},
+	}
+
+	var registerArgs []*IrVal
+	var stackArgs []*IrVal
+
+	if len(irfn.args) < 6 {
+		registerArgs = irfn.args
+	} else {
+		registerArgs = irfn.args[:6]
+		stackArgs = irfn.args[6:]
+	}
+
+	stackPadding := 0
+	if len(stackArgs)%2 == 1 {
+		stackPadding = 8
+	}
+
+	if stackPadding != 0 {
+		ib.emit(Instruction{
+			data: int64(stackPadding),
+		})
+	}
+
+	for rIdx, rArg := range registerArgs {
+		assemblyArg := toOperand(rArg)
+		ib.emit(Instruction{
+			data: &Mov{
+				a: assemblyArg,
+				b: argRegisters[rIdx],
+			},
+		})
+	}
+
+	for idx := len(stackArgs) - 1; idx >= 0; idx-- {
+		assemblyArg := toOperand(stackArgs[idx])
+		if assemblyArg.isRegister() || assemblyArg.kind == OPERAND_IMM {
+			ib.emit(Instruction{
+				data: &Push{
+					op: assemblyArg,
+				},
+			})
+		} else {
+			ib.emit(Instruction{
+				data: &Mov{
+					a: assemblyArg,
+					b: Operand{kind: OPERAND_REG_AX},
+				},
+			}, Instruction{
+				data: &Push{
+					op: Operand{kind: OPERAND_REG_AX},
+				},
+			})
+		}
+	}
+
+	ib.emit(Instruction{
+		data: &Call{
+			ident: irfn.identifier,
+		},
+	})
+
+	bytesToRemove := int64(8*len(stackArgs) + stackPadding)
+	if bytesToRemove != 0 {
+		ib.emit(Instruction{
+			data: &DeallocateStack{
+				bytesToRemove: bytesToRemove,
+			},
+		})
+	}
+
+	assemblyDst := toOperand(irfn.dst)
+	ib.emit(Instruction{
+		data: &Mov{
+			a: Operand{kind: OPERAND_REG_AX},
+			b: assemblyDst,
+		},
+	})
 }
 
 func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
