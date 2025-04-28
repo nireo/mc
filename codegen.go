@@ -64,6 +64,11 @@ const (
 	OPERAND_REG_R11
 	OPERAND_PSEUDO
 	OPERAND_STACK
+	OPERAND_REG_CX
+	OPERAND_REG_DI
+	OPERAND_REG_SI
+	OPERAND_REG_R8
+	OPERAND_REG_R9
 )
 
 var oneByteRegisters = map[OperandKind]string{
@@ -71,6 +76,113 @@ var oneByteRegisters = map[OperandKind]string{
 	OPERAND_REG_DX:  "%dl",
 	OPERAND_REG_R10: "%r10b",
 	OPERAND_REG_R11: "%r11b",
+}
+
+func regWithN(reg Operand, bytes int) string {
+	switch reg.kind {
+	case OPERAND_REG_AX:
+		switch bytes {
+		case 8:
+			return "%rax"
+		case 4:
+			return "%eax"
+		case 1:
+			return "%al"
+		default:
+			panic(fmt.Sprintf("Unsupported byte size %d for register AX", bytes))
+		}
+	case OPERAND_REG_DX:
+		switch bytes {
+		case 8:
+			return "%rdx"
+		case 4:
+			return "%edx"
+		case 1:
+			return "%dl"
+		default:
+			panic(fmt.Sprintf("Unsupported byte size %d for register DX", bytes))
+		}
+	case OPERAND_REG_R10:
+		switch bytes {
+		case 8:
+			return "%r10"
+		case 4:
+			return "%r10d"
+		case 1:
+			return "%r10b"
+		default:
+			panic(fmt.Sprintf("Unsupported byte size %d for register R10", bytes))
+		}
+	case OPERAND_REG_R11:
+		switch bytes {
+		case 8:
+			return "%r11"
+		case 4:
+			return "%r11d"
+		case 1:
+			return "%r11b"
+		default:
+			panic(fmt.Sprintf("Unsupported byte size %d for register R11", bytes))
+		}
+	// --- Add cases for other registers if OperandKind is expanded ---
+	case OPERAND_REG_CX:
+		switch bytes {
+		case 8:
+			return "%rcx"
+		case 4:
+			return "%ecx"
+		case 1:
+			return "%cl"
+		default:
+			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
+		}
+	case OPERAND_REG_DI:
+		switch bytes {
+		case 8:
+			return "%rdi"
+		case 4:
+			return "%edi"
+		case 1:
+			return "%dil"
+		default:
+			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
+		}
+	case OPERAND_REG_SI:
+		switch bytes {
+		case 8:
+			return "%rsi"
+		case 4:
+			return "%esi"
+		case 1:
+			return "%sil"
+		default:
+			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
+		}
+	case OPERAND_REG_R8:
+		switch bytes {
+		case 8:
+			return "%r8"
+		case 4:
+			return "%r8d"
+		case 1:
+			return "%r8b"
+		default:
+			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
+		}
+	case OPERAND_REG_R9:
+		switch bytes {
+		case 8:
+			return "%r9"
+		case 4:
+			return "%r9d"
+		case 1:
+			return "%r9b"
+		default:
+			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
+		}
+	default:
+		panic(fmt.Sprintf("Operand kind %v is not a register supported by regWithN", reg.kind))
+	}
 }
 
 type Operand struct {

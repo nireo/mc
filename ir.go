@@ -107,6 +107,12 @@ type IrJumpIfNotZero struct {
 	target    string
 }
 
+type IrFuncCall struct {
+	identifier string
+	args       []*IrVal
+	dst        *IrVal
+}
+
 type IrInstruction struct {
 	data any
 }
@@ -502,6 +508,25 @@ func (g *IrGenerator) generateAssign(assign *AssignExpr, instructions *[]*IrInst
 	return irVar
 }
 
+func (g *IrGenerator) generateFunCall(fncall *FunctionCall, instructions *[]*IrInstruction) *IrVal {
+	args := make([]*IrVal, 0, len(fncall.args))
+	for _, argExpr := range fncall.args {
+		argVal := g.generateExpression(argExpr, instructions)
+		args = append(args, argVal)
+	}
+
+	resVar := g.newTempVar()
+	*instructions = append(*instructions, &IrInstruction{
+		data: &IrFuncCall{
+			identifier: fncall.ident,
+			args:       args,
+			dst:        resVar,
+		},
+	})
+
+	return resVar
+}
+
 func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrInstruction) *IrVal {
 	switch e := expr.data.(type) {
 	case int64:
@@ -516,6 +541,8 @@ func (g *IrGenerator) generateExpression(expr *Expression, instructions *[]*IrIn
 		return NewIrVar(e)
 	case *CondExpr:
 		return g.generateConditionalExpr(e, instructions)
+	case *FunctionCall:
+		return g.generateFunCall(e, instructions)
 	default:
 		panic("unsupported expression kind in IR generator")
 	}
