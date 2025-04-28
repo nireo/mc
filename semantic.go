@@ -73,10 +73,9 @@ func (s *SemanticAnalyzer) resolveExpr(expr *Expression, identifiers Identifiers
 		s.resolveExpr(e.lvalue, identifiers)
 		s.resolveExpr(e.avalue, identifiers)
 	case *CondExpr:
-		cond := expr.data.(*CondExpr)
-		s.resolveExpr(cond.left, identifiers)
-		s.resolveExpr(cond.middle, identifiers)
-		s.resolveExpr(cond.right, identifiers)
+		s.resolveExpr(e.left, identifiers)
+		s.resolveExpr(e.middle, identifiers)
+		s.resolveExpr(e.right, identifiers)
 	case string:
 		if si, ok := identifiers[e]; ok {
 			expr.data = si.name
@@ -232,4 +231,6 @@ func AnalyzeSemantic(prog *Program) {
 	for _, fn := range prog.funcs {
 		s.resolveFuncDecl(fn, identifiers)
 	}
+
+	checkProgramTypes(prog)
 }
