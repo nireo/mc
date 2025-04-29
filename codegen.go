@@ -197,17 +197,13 @@ type Operand struct {
 }
 
 func (o Operand) String() string {
+	if o.isRegister() {
+		return regWithN(o, 4)
+	}
+
 	switch o.kind {
 	case OPERAND_IMM:
 		return fmt.Sprintf("$%d", o.imm)
-	case OPERAND_REG_AX:
-		return "%eax"
-	case OPERAND_REG_DX:
-		return "%edx"
-	case OPERAND_REG_R10:
-		return "%r10d"
-	case OPERAND_REG_R11:
-		return "%r11d"
 	case OPERAND_STACK:
 		return fmt.Sprintf("%d(%%rbp)", o.imm)
 	}
@@ -278,7 +274,7 @@ type GenFunction struct {
 }
 
 type GenProgram struct {
-	fn *GenFunction
+	functions []*GenFunction
 }
 
 func (i Instruction) String() string {
@@ -309,6 +305,12 @@ func (i Instruction) String() string {
 		}
 		// since the register wasn't ax, dx, r10 or r11. just emit the existing one
 		return fmt.Sprintf("\tset%s %s", in.condCode, in.a)
+	case *DeallocateStack:
+		return fmt.Sprintf("\taddq $%d, %%rsp", in.bytesToRemove)
+	case *Call:
+		return fmt.Sprintf("\tcall %s@PLT", in.ident)
+	case *Push:
+		return fmt.Sprintf("\tpushq %s", in.op)
 	case string:
 		return fmt.Sprintf(".L%s:", i.data.(string))
 	}
@@ -378,6 +380,8 @@ func (ib *InstructionBuilder) replacePseudoRegisters() int {
 	}
 	for _, inst := range ib.insts {
 		switch in := inst.data.(type) {
+		case *Push:
+			registerPseudo(in.op)
 		case *Mov:
 			registerPseudo(in.a)
 			registerPseudo(in.b)
@@ -412,6 +416,8 @@ func (ib *InstructionBuilder) replacePseudoRegisters() int {
 			replacePseudo(&in.a)
 			replacePseudo(&in.b)
 		case *Idivl:
+			replacePseudo(&in.op)
+		case *Push:
 			replacePseudo(&in.op)
 		case *UnaryInstruction:
 			replacePseudo(&in.operand)
@@ -624,6 +630,8 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 	switch in := ins.data.(type) {
 	case *IrReturnInstruction:
 		ib.emit(newMov(toOperand(in.val), Operand{kind: OPERAND_REG_AX}), Instruction{data: &Ret{}})
+	case *IrFuncCall:
+		ib.emitFunctionCall(in)
 	case *IrUnaryInstruction:
 		if in.operator == IR_UNARY_NOT {
 			ib.emit(Instruction{
@@ -725,30 +733,38 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 }
 
 func GenerateIr(prog *IrProgram) *GenProgram {
-	genFn := &GenFunction{
-		name: prog.function.identifier,
-		ib: InstructionBuilder{
-			insts: make([]Instruction, 0),
-		},
-	}
+	// TODO: maybe add workers here since at this point the functions can be
+	// generated independently from each other.
 
-	for _, inst := range prog.function.body {
-		genFn.ib.emitIrInst(inst)
-	}
-
-	stackSize := genFn.ib.replacePseudoRegisters()
-	genFn.ib.fixInstructions()
-
-	if stackSize > 0 {
-		allocInst := Instruction{
-			data: int64(stackSize),
+	funcs := make([]*GenFunction, 0, len(prog.functions))
+	for _, fn := range prog.functions {
+		genFn := &GenFunction{
+			name: fn.identifier,
+			ib: InstructionBuilder{
+				insts: make([]Instruction, 0),
+			},
 		}
 
-		genFn.ib.insts = append([]Instruction{allocInst}, genFn.ib.insts...)
+		for _, inst := range fn.body {
+			genFn.ib.emitIrInst(inst)
+		}
+
+		stackSize := genFn.ib.replacePseudoRegisters()
+		genFn.ib.fixInstructions()
+
+		if stackSize > 0 {
+			allocInst := Instruction{
+				data: int64(stackSize),
+			}
+
+			genFn.ib.insts = append([]Instruction{allocInst}, genFn.ib.insts...)
+		}
+
+		funcs = append(funcs, genFn)
 	}
 
 	return &GenProgram{
-		fn: genFn,
+		functions: funcs,
 	}
 }
 
@@ -759,8 +775,10 @@ func NewCodeEmitter() *CodeEmitter {
 }
 
 func (ce *CodeEmitter) EmitProgram(program *GenProgram, writer io.Writer) error {
-	if err := ce.EmitFunction(program.fn, writer); err != nil {
-		return err
+	for _, fn := range program.functions {
+		if err := ce.EmitFunction(fn, writer); err != nil {
+			return err
+		}
 	}
 
 	if _, err := fmt.Fprintln(writer, "\t.section .note.GNU-stack,\"\",@progbits"); err != nil {

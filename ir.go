@@ -152,13 +152,7 @@ func NewIrFunction(identifier string, body []*IrInstruction) *IrFunction {
 }
 
 type IrProgram struct {
-	function *IrFunction
-}
-
-func NewIrProgram(function *IrFunction) *IrProgram {
-	return &IrProgram{
-		function: function,
-	}
+	functions []*IrFunction
 }
 
 type IrGenerator struct {
@@ -173,15 +167,15 @@ func NewIrGenerator() *IrGenerator {
 }
 
 func (g *IrGenerator) Generate(program *Program) *IrProgram {
-	var mainFn *FunctionDef
+	funcs := make([]*IrFunction, 0, len(program.funcs))
 	for _, fn := range program.funcs {
-		if fn.identifier == "main" {
-			mainFn = fn
+		if fn.body != nil {
+			genFn := g.generateFunction(fn)
+			funcs = append(funcs, genFn)
 		}
 	}
 
-	irFunction := g.generateFunction(mainFn)
-	return NewIrProgram(irFunction)
+	return &IrProgram{functions: funcs}
 }
 
 func (g *IrGenerator) generateBlock(block *Block, instructions *[]*IrInstruction) {
