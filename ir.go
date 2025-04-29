@@ -193,7 +193,7 @@ func (g *IrGenerator) generateDecl(decl *Declaration, instructions *[]*IrInstruc
 	// we only need to generate something if the declaration contains a initializer
 	vd, ok := decl.data.(*VarDecl)
 	if !ok {
-		panic("trying to generate function decl")
+		return // do nothing
 	}
 
 	if vd.init != nil {
@@ -212,29 +212,13 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 	instructions := []*IrInstruction{}
 	g.generateBlock(fnDef.body, &instructions)
 
-	// ensure that the main function has a return statement
-	if fnDef.identifier == "main" {
-		addRet := false
-		if len(fnDef.body.items) == 0 {
-			addRet = true
-		}
-
-		if len(fnDef.body.items) > 0 {
-			if _, ok := fnDef.body.items[len(fnDef.body.items)-1].data.(*Statement).data.(*ReturnStatement); !ok {
-				addRet = true
-			}
-		}
-
-		if addRet {
-			g.generateStatement(&Statement{
-				data: &ReturnStatement{
-					expr: &Expression{
-						data: int64(0),
-					},
-				},
-			}, &instructions)
-		}
-	}
+	g.generateStatement(&Statement{
+		data: &ReturnStatement{
+			expr: &Expression{
+				data: int64(0),
+			},
+		},
+	}, &instructions)
 
 	return NewIrFunction(fnDef.identifier, instructions)
 }

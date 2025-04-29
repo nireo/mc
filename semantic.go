@@ -225,12 +225,12 @@ func (s *SemanticAnalyzer) resolveFuncDecl(fndef *FunctionDef, identifiers Ident
 	}
 }
 
-func AnalyzeSemantic(prog *Program) {
+func AnalyzeSemantic(prog *Program) map[string]Symbol {
 	s := SemanticAnalyzer{}
 	identifiers := make(map[string]SymbolInfo)
 	for _, fn := range prog.funcs {
 		s.resolveFuncDecl(fn, identifiers)
 	}
 
-	checkProgramTypes(prog)
+	return checkProgramTypes(prog)
 }

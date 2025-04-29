@@ -165,11 +165,11 @@ func compile(inputFile, outputFile string) error {
 
 	p := mc.NewParser(tokenized)
 	prog := p.Parse()
-	mc.AnalyzeSemantic(prog)
+	symbols := mc.AnalyzeSemantic(prog)
 
 	ir := mc.NewIrGenerator()
 	irProg := ir.Generate(prog)
-	genProgram := mc.GenerateIr(irProg)
+	genProgram := mc.GenerateIr(irProg, symbols)
 
 	assemblyFile, err := os.Create(outputFile)
 	if err != nil {

@@ -17,8 +17,9 @@ type Type struct {
 }
 
 type Symbol struct {
-	ty      Type
-	defined bool
+	ty        Type
+	defined   bool
+	stackSize int
 }
 
 func newType(kind TypeKind) Type {
@@ -57,8 +58,10 @@ func checkFuncDeclTypes(fndef *FunctionDef, symbols map[string]Symbol) {
 			kind:  TY_FUNC,
 			extra: fnType,
 		},
-		defined: alreadyDefined || hasBody,
+		defined:   alreadyDefined || hasBody,
+		stackSize: len(fndef.params) * 4,
 	}
+	// NOTE: remember stack size
 
 	if hasBody {
 		for _, p := range fndef.params {

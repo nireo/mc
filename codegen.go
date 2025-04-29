@@ -5,6 +5,10 @@ import (
 	"io"
 )
 
+func roundUp(n int64, multiple int64) int64 {
+	return (n + (multiple - 1)) & ^(multiple - 1)
+}
+
 type Operation int
 
 const (
@@ -207,7 +211,8 @@ func (o Operand) String() string {
 	case OPERAND_STACK:
 		return fmt.Sprintf("%d(%%rbp)", o.imm)
 	}
-	return ""
+
+	panic("unrecognized operand")
 }
 
 type Cdq struct{}
@@ -238,7 +243,8 @@ type Push struct {
 }
 
 type Call struct {
-	ident string
+	ident    string
+	internal bool
 }
 
 type DeallocateStack struct {
@@ -308,7 +314,11 @@ func (i Instruction) String() string {
 	case *DeallocateStack:
 		return fmt.Sprintf("\taddq $%d, %%rsp", in.bytesToRemove)
 	case *Call:
-		return fmt.Sprintf("\tcall %s@PLT", in.ident)
+		extra := ""
+		if !in.internal {
+			extra = "@PLT"
+		}
+		return fmt.Sprintf("\tcall %s%s", in.ident, extra)
 	case *Push:
 		return fmt.Sprintf("\tpushq %s", in.op)
 	case string:
@@ -359,7 +369,8 @@ func newMov(src Operand, dst Operand) Instruction {
 }
 
 type InstructionBuilder struct {
-	insts []Instruction
+	insts   []Instruction
+	symbols map[string]Symbol
 }
 
 func (ib *InstructionBuilder) emit(instructions ...Instruction) {
@@ -602,9 +613,11 @@ func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
 		}
 	}
 
+	symbol := ib.symbols[irfn.identifier]
 	ib.emit(Instruction{
 		data: &Call{
-			ident: irfn.identifier,
+			ident:    irfn.identifier,
+			internal: symbol.defined,
 		},
 	})
 
@@ -732,7 +745,7 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 	}
 }
 
-func GenerateIr(prog *IrProgram) *GenProgram {
+func GenerateIr(prog *IrProgram, symbols map[string]Symbol) *GenProgram {
 	// TODO: maybe add workers here since at this point the functions can be
 	// generated independently from each other.
 
@@ -741,7 +754,8 @@ func GenerateIr(prog *IrProgram) *GenProgram {
 		genFn := &GenFunction{
 			name: fn.identifier,
 			ib: InstructionBuilder{
-				insts: make([]Instruction, 0),
+				insts:   make([]Instruction, 0),
+				symbols: symbols,
 			},
 		}
 
@@ -749,12 +763,14 @@ func GenerateIr(prog *IrProgram) *GenProgram {
 			genFn.ib.emitIrInst(inst)
 		}
 
-		stackSize := genFn.ib.replacePseudoRegisters()
+		// NOTE: remember this when adding more types other than ints
+		symbol := symbols[fn.identifier]
+		stackSize := genFn.ib.replacePseudoRegisters() + symbol.stackSize
 		genFn.ib.fixInstructions()
 
 		if stackSize > 0 {
 			allocInst := Instruction{
-				data: int64(stackSize),
+				data: roundUp(int64(stackSize), 16),
 			}
 
 			genFn.ib.insts = append([]Instruction{allocInst}, genFn.ib.insts...)
