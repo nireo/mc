@@ -142,12 +142,14 @@ func NewIrUnaryInstruction(operator IrOperator, src, dst *IrVal) *IrInstruction 
 type IrFunction struct {
 	identifier string
 	body       []*IrInstruction
+	params     []string
 }
 
-func NewIrFunction(identifier string, body []*IrInstruction) *IrFunction {
+func NewIrFunction(identifier string, body []*IrInstruction, params []string) *IrFunction {
 	return &IrFunction{
 		identifier: identifier,
 		body:       body,
+		params:     params,
 	}
 }
 
@@ -220,7 +222,7 @@ func (g *IrGenerator) generateFunction(fnDef *FunctionDef) *IrFunction {
 		},
 	}, &instructions)
 
-	return NewIrFunction(fnDef.identifier, instructions)
+	return NewIrFunction(fnDef.identifier, instructions, fnDef.params)
 }
 
 func (g *IrGenerator) generateIfStatement(ifst *IfStatement, instructions *[]*IrInstruction) {

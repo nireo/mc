@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ func main() {
 	shouldCodegen := flag.Bool("codegen", false, "Perform lexing, parsing, and assembly generation, but stop before code emission")
 	shouldValidate := flag.Bool("validate", false, "Perform lexing, parsing but stop before IR generation")
 	shouldEmitAssembly := flag.Bool("S", false, "Emit an assembly file, but don't assemble or link it")
+	shouldCompileOnly := flag.Bool("c", false, "compile to object file but don't link")
 
 	flag.Parse()
 
@@ -38,6 +40,7 @@ func main() {
 
 	inputDir := filepath.Dir(inputFile)
 	preprocessedFile := filepath.Join(inputDir, nameWithoutExt+".i")
+	objectFile := filepath.Join(inputDir, nameWithoutExt+".o")
 	assemblyFile := filepath.Join(inputDir, nameWithoutExt+".s")
 	executableFile := filepath.Join(inputDir, nameWithoutExt)
 	fmt.Println(executableFile)
@@ -91,6 +94,17 @@ func main() {
 		os.Exit(0)
 	}
 
+	if *shouldCompileOnly {
+		if err := assembleOnly(assemblyFile, objectFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Assembly error: %v\n", err)
+			cleanup(assemblyFile)
+			os.Exit(1)
+		}
+		cleanup(assemblyFile)
+		fmt.Printf("Object file created: %s\n", objectFile)
+		os.Exit(0)
+	}
+
 	if err := assembleAndLink(assemblyFile, executableFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Assembly/Linking error: %v\n", err)
 		cleanup(assemblyFile)
@@ -102,9 +116,29 @@ func main() {
 	os.Exit(0)
 }
 
+func assembleOnly(assemblyFile, objectFile string) error {
+	cmd := exec.Command("gcc", "-c", assemblyFile, "-o", objectFile)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("gcc assemble failed: %v\n--- GCC Stderr ---\n%s", err, stderr.String())
+	}
+	return nil
+}
+
 func preprocess(inputFile, outputFile string) error {
 	cmd := exec.Command("gcc", "-E", "-P", inputFile, "-o", outputFile)
-	return cmd.Run()
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("gcc preprocess failed: %v\n--- GCC Stderr ---\n%s", err, stderr.String())
+	}
+	return nil
 }
 
 func runLexer(inputFile string) error {
@@ -183,7 +217,14 @@ func compile(inputFile, outputFile string) error {
 
 func assembleAndLink(assemblyFile, executableFile string) error {
 	cmd := exec.Command("gcc", assemblyFile, "-o", executableFile)
-	return cmd.Run()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("gcc assemble/link failed: %v\n--- GCC Stderr ---\n%s", err, stderr.String())
+	}
+	return nil
 }
 
 func cleanup(file string) {

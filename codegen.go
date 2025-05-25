@@ -320,6 +320,9 @@ func (i Instruction) String() string {
 		}
 		return fmt.Sprintf("\tcall %s%s", in.ident, extra)
 	case *Push:
+		if in.op.isRegister() {
+			return fmt.Sprintf("\tpushq %s", regWithN(in.op, 8))
+		}
 		return fmt.Sprintf("\tpushq %s", in.op)
 	case string:
 		return fmt.Sprintf(".L%s:", i.data.(string))
@@ -745,6 +748,33 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 	}
 }
 
+func (ib *InstructionBuilder) emitParameterSetup(params []string) {
+	argRegisters := []OperandKind{
+		OPERAND_REG_DI,
+		OPERAND_REG_SI,
+		OPERAND_REG_DX,
+		OPERAND_REG_CX,
+		OPERAND_REG_R8,
+		OPERAND_REG_R9,
+	}
+
+	for index, param := range params {
+		if index < 6 {
+			// Move from argument register to pseudoregister
+			src := Operand{kind: argRegisters[index]}
+			dst := Operand{kind: OPERAND_PSEUDO, ident: param}
+			ib.emit(newMov(src, dst))
+		} else {
+			// Move from caller's stack frame to pseudoregister
+			// 7th parameter is at 16(%rbp), 8th at 24(%rbp), etc.
+			stackOffset := int64((index - 4) * 8)
+			src := Operand{kind: OPERAND_STACK, imm: stackOffset}
+			dst := Operand{kind: OPERAND_PSEUDO, ident: param}
+			ib.emit(newMov(src, dst))
+		}
+	}
+}
+
 func GenerateIr(prog *IrProgram, symbols map[string]Symbol) *GenProgram {
 	// TODO: maybe add workers here since at this point the functions can be
 	// generated independently from each other.
@@ -759,6 +789,10 @@ func GenerateIr(prog *IrProgram, symbols map[string]Symbol) *GenProgram {
 			},
 		}
 
+		if fn.identifier != "main" {
+			genFn.ib.emitParameterSetup(fn.params)
+		}
+
 		for _, inst := range fn.body {
 			genFn.ib.emitIrInst(inst)
 		}
@@ -769,10 +803,15 @@ func GenerateIr(prog *IrProgram, symbols map[string]Symbol) *GenProgram {
 		genFn.ib.fixInstructions()
 
 		if stackSize > 0 {
-			allocInst := Instruction{
-				data: roundUp(int64(stackSize), 16),
+			alignedStackSize := stackSize
+			remainder := alignedStackSize % 16
+			if remainder != 0 {
+				alignedStackSize = (alignedStackSize/16)*16 + 16
 			}
 
+			allocInst := Instruction{
+				data: int64(alignedStackSize),
+			}
 			genFn.ib.insts = append([]Instruction{allocInst}, genFn.ib.insts...)
 		}
 
