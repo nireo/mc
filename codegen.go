@@ -566,7 +566,7 @@ func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
 	var registerArgs []*IrVal
 	var stackArgs []*IrVal
 
-	if len(irfn.args) < 6 {
+	if len(irfn.args) <= 6 {
 		registerArgs = irfn.args
 	} else {
 		registerArgs = irfn.args[:6]
