@@ -87,6 +87,15 @@ func (s *SemanticAnalyzer) resolveExpr(expr *Expression, identifiers Identifiers
 		s.resolveExpr(e.rhs, identifiers)
 	case *UnaryExpr:
 		s.resolveExpr(e.expr, identifiers)
+	case *FunctionCall:
+		if fn, ok := identifiers[e.ident]; ok {
+			e.ident = fn.name
+			for _, arg := range e.args {
+				s.resolveExpr(arg, identifiers)
+			}
+		} else {
+			panic("call to undeclared function")
+		}
 	}
 }
 
