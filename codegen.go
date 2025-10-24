@@ -5,53 +5,49 @@ import (
 	"io"
 )
 
-func roundUp(n int64, multiple int64) int64 {
-	return (n + (multiple - 1)) & ^(multiple - 1)
-}
-
 type Operation int
 
 const (
-	A_O_NOT Operation = iota
-	A_O_NEG
-	A_O_ADD
-	A_O_SUB
-	A_O_MUL
-	A_O_DIV
-	A_O_REMAINDER
+	AsmOpNot Operation = iota
+	AsmOpNeg
+	AsmOpAdd
+	AsmOpSub
+	AsmOpMul
+	AsmOpDiv
+	AsmOpRemainder
 )
 
 type ConditionCode string
 
 const (
-	COND_E  ConditionCode = "e"
-	COND_NE ConditionCode = "ne"
-	COND_G  ConditionCode = "g"
-	COND_GE ConditionCode = "ge"
-	COND_L  ConditionCode = "l"
-	COND_LE ConditionCode = "le"
+	CondCodeE  ConditionCode = "e"
+	CondCodeNE ConditionCode = "ne"
+	CondCodeG  ConditionCode = "g"
+	CondCodeGE ConditionCode = "ge"
+	CondCodeL  ConditionCode = "l"
+	CondCodeLE ConditionCode = "le"
 )
 
 var relToCondCode = map[IrOperator]ConditionCode{
-	IR_BIN_EQ:   COND_E,
-	IR_BIN_NEQ:  COND_NE,
-	IR_BIN_LT:   COND_L,
-	IR_BIN_GT:   COND_G,
-	IR_BIN_LTEQ: COND_LE,
-	IR_BIN_GTEQ: COND_GE,
+	IrOpBinEQ:   CondCodeE,
+	IrOpBinNeq:  CondCodeNE,
+	IrOpBinLT:   CondCodeL,
+	IrOpBinGT:   CondCodeG,
+	IrOpBinLTEQ: CondCodeLE,
+	IrOpBinGTEQ: CondCodeGE,
 }
 
 func (o Operation) String() string {
 	switch o {
-	case A_O_NOT:
+	case AsmOpNot:
 		return "notl"
-	case A_O_NEG:
+	case AsmOpNeg:
 		return "negl"
-	case A_O_ADD:
+	case AsmOpAdd:
 		return "addl"
-	case A_O_SUB:
+	case AsmOpSub:
 		return "subl"
-	case A_O_MUL:
+	case AsmOpMul:
 		return "imull"
 	}
 
@@ -61,35 +57,40 @@ func (o Operation) String() string {
 type OperandKind int
 
 const (
-	OPERAND_IMM OperandKind = iota
-	OPERAND_REG_AX
-	OPERAND_REG_DX
-	OPERAND_REG_R10
-	OPERAND_REG_R11
-	OPERAND_PSEUDO
-	OPERAND_STACK
-	OPERAND_REG_CX
-	OPERAND_REG_DI
-	OPERAND_REG_SI
-	OPERAND_REG_R8
-	OPERAND_REG_R9
+	OperandImm OperandKind = iota
+	OperandRegAX
+	OperandRegDX
+	OperandRegR10
+	OperandRegR11
+	OperandPseudo
+	OperandStack
+	OperandRegCX
+	OperandRegDI
+	OperandRegSI
+	OperandRegR8
+	OperandRegR9
 )
 
 func (o Operand) isRegister() bool {
-	return o.kind == OPERAND_REG_AX || o.kind == OPERAND_REG_DX || o.kind == OPERAND_REG_R10 || o.kind == OPERAND_REG_R11 ||
-		o.kind == OPERAND_REG_CX || o.kind == OPERAND_REG_DI || o.kind == OPERAND_REG_SI || o.kind == OPERAND_REG_R8 || o.kind == OPERAND_REG_R9
+	return o.kind == OperandRegAX || o.kind == OperandRegDX || o.kind == OperandRegR10 ||
+		o.kind == OperandRegR11 ||
+		o.kind == OperandRegCX ||
+		o.kind == OperandRegDI ||
+		o.kind == OperandRegSI ||
+		o.kind == OperandRegR8 ||
+		o.kind == OperandRegR9
 }
 
 var oneByteRegisters = map[OperandKind]string{
-	OPERAND_REG_AX:  "%al",
-	OPERAND_REG_DX:  "%dl",
-	OPERAND_REG_R10: "%r10b",
-	OPERAND_REG_R11: "%r11b",
+	OperandRegAX:  "%al",
+	OperandRegDX:  "%dl",
+	OperandRegR10: "%r10b",
+	OperandRegR11: "%r11b",
 }
 
 func regWithN(reg Operand, bytes int) string {
 	switch reg.kind {
-	case OPERAND_REG_AX:
+	case OperandRegAX:
 		switch bytes {
 		case 8:
 			return "%rax"
@@ -100,7 +101,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("Unsupported byte size %d for register AX", bytes))
 		}
-	case OPERAND_REG_DX:
+	case OperandRegDX:
 		switch bytes {
 		case 8:
 			return "%rdx"
@@ -111,7 +112,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("Unsupported byte size %d for register DX", bytes))
 		}
-	case OPERAND_REG_R10:
+	case OperandRegR10:
 		switch bytes {
 		case 8:
 			return "%r10"
@@ -122,7 +123,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("Unsupported byte size %d for register R10", bytes))
 		}
-	case OPERAND_REG_R11:
+	case OperandRegR11:
 		switch bytes {
 		case 8:
 			return "%r11"
@@ -133,8 +134,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("Unsupported byte size %d for register R11", bytes))
 		}
-	// --- Add cases for other registers if OperandKind is expanded ---
-	case OPERAND_REG_CX:
+	case OperandRegCX:
 		switch bytes {
 		case 8:
 			return "%rcx"
@@ -145,7 +145,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
 		}
-	case OPERAND_REG_DI:
+	case OperandRegDI:
 		switch bytes {
 		case 8:
 			return "%rdi"
@@ -156,7 +156,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
 		}
-	case OPERAND_REG_SI:
+	case OperandRegSI:
 		switch bytes {
 		case 8:
 			return "%rsi"
@@ -167,7 +167,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
 		}
-	case OPERAND_REG_R8:
+	case OperandRegR8:
 		switch bytes {
 		case 8:
 			return "%r8"
@@ -178,7 +178,7 @@ func regWithN(reg Operand, bytes int) string {
 		default:
 			panic(fmt.Sprintf("unsupported byte size %d for register cx", bytes))
 		}
-	case OPERAND_REG_R9:
+	case OperandRegR9:
 		switch bytes {
 		case 8:
 			return "%r9"
@@ -206,17 +206,19 @@ func (o Operand) String() string {
 	}
 
 	switch o.kind {
-	case OPERAND_IMM:
+	case OperandImm:
 		return fmt.Sprintf("$%d", o.imm)
-	case OPERAND_STACK:
+	case OperandStack:
 		return fmt.Sprintf("%d(%%rbp)", o.imm)
 	}
 
 	panic("unrecognized operand")
 }
 
-type Cdq struct{}
-type Ret struct{}
+type (
+	Cdq struct{}
+	Ret struct{}
+)
 
 type UnaryInstruction struct {
 	op      Operation
@@ -323,6 +325,7 @@ func (i Instruction) String() string {
 		if in.op.isRegister() {
 			return fmt.Sprintf("\tpushq %s", regWithN(in.op, 8))
 		}
+
 		return fmt.Sprintf("\tpushq %s", in.op)
 	case string:
 		return fmt.Sprintf(".L%s:", i.data.(string))
@@ -332,10 +335,10 @@ func (i Instruction) String() string {
 
 func toOperand(val *IrVal) Operand {
 	switch val.kind {
-	case IR_VAL_CONSTANT:
-		return Operand{kind: OPERAND_IMM, imm: val.constant}
-	case IR_VAL_VAR:
-		return Operand{kind: OPERAND_PSEUDO, ident: val.identifier}
+	case IrValConstant:
+		return Operand{kind: OperandImm, imm: val.constant}
+	case IrValVar:
+		return Operand{kind: OperandPseudo, ident: val.identifier}
 	}
 
 	panic("unrecognized ir value")
@@ -343,20 +346,20 @@ func toOperand(val *IrVal) Operand {
 
 func convertIrOperator(op IrOperator) Operation {
 	switch op {
-	case IR_UNARY_COMPLEMENT:
-		return A_O_NOT
-	case IR_UNARY_NEGATE:
-		return A_O_NEG
-	case IR_BIN_ADD:
-		return A_O_ADD
-	case IR_BIN_REMAINDER:
-		return A_O_REMAINDER
-	case IR_BIN_SUB:
-		return A_O_SUB
-	case IR_BIN_MUL:
-		return A_O_MUL
-	case IR_BIN_DIV:
-		return A_O_DIV
+	case IrOpUnaryComplement:
+		return AsmOpNot
+	case IrOpUnaryNegate:
+		return AsmOpNeg
+	case IrOpBinAdd:
+		return AsmOpAdd
+	case IrOpBinRemainder:
+		return AsmOpRemainder
+	case IrOpBinSub:
+		return AsmOpSub
+	case IrOpBinMul:
+		return AsmOpMul
+	case IrOpBinDiv:
+		return AsmOpDiv
 	}
 
 	panic("unrecognized ir operator")
@@ -385,7 +388,7 @@ func (ib *InstructionBuilder) replacePseudoRegisters() int {
 	currentOffset := int64(-4)
 
 	registerPseudo := func(op Operand) {
-		if op.kind == OPERAND_PSEUDO {
+		if op.kind == OperandPseudo {
 			if _, exists := pseudoToStack[op.ident]; !exists {
 				pseudoToStack[op.ident] = currentOffset
 				currentOffset -= 4
@@ -415,9 +418,9 @@ func (ib *InstructionBuilder) replacePseudoRegisters() int {
 	}
 
 	replacePseudo := func(op *Operand) {
-		if op.kind == OPERAND_PSEUDO {
+		if op.kind == OperandPseudo {
 			if offset, exists := pseudoToStack[op.ident]; exists {
-				op.kind = OPERAND_STACK
+				op.kind = OperandStack
 				op.imm = offset
 			}
 		}
@@ -450,74 +453,76 @@ func (ib *InstructionBuilder) replacePseudoRegisters() int {
 }
 
 func (ib *InstructionBuilder) fixInstructions() {
-	// prealloc atleast the size of the instructions since we know the amount of instructions is equal
+	// prealloc atleast the size of the instructions since we know the amount of instructions is
+	// equal
 	// or more to the fixed instructions
 	fixedInstructions := make([]Instruction, 0, len(ib.insts))
 
 	for _, inst := range ib.insts {
-		if mov, ok := inst.data.(*Mov); ok && mov.a.kind == OPERAND_STACK && mov.b.kind == OPERAND_STACK {
+		if mov, ok := inst.data.(*Mov); ok && mov.a.kind == OperandStack &&
+			mov.b.kind == OperandStack {
 			// movl -4(%rbp), -8(%rbp)
 			// ->
 			// movl -4(%rbp), %r10d
 			// movl %r10d, -8(%rbp)
-			moveToR10 := newMov(mov.a, Operand{kind: OPERAND_REG_R10})
-			moveFromR10 := newMov(Operand{kind: OPERAND_REG_R10}, mov.b)
+			moveToR10 := newMov(mov.a, Operand{kind: OperandRegR10})
+			moveFromR10 := newMov(Operand{kind: OperandRegR10}, mov.b)
 
 			fixedInstructions = append(fixedInstructions, moveToR10, moveFromR10)
-		} else if idivl, ok := inst.data.(*Idivl); ok && idivl.op.kind == OPERAND_IMM {
+		} else if idivl, ok := inst.data.(*Idivl); ok && idivl.op.kind == OperandImm {
 			// idivl $3
 			// ->
 			// movl $3, %r10d
 			// idivl %r10d
 
-			movToR10 := newMov(idivl.op, Operand{kind: OPERAND_REG_R10})
+			movToR10 := newMov(idivl.op, Operand{kind: OperandRegR10})
 			idivl := Instruction{
 				data: &Idivl{
-					op: Operand{kind: OPERAND_REG_R10},
+					op: Operand{kind: OperandRegR10},
 				},
 			}
 			fixedInstructions = append(fixedInstructions, movToR10, idivl)
 		} else if binary, ok := inst.data.(*BinaryInstruction); ok &&
-			(binary.op == A_O_ADD || binary.op == A_O_SUB) &&
-			binary.a.kind == OPERAND_STACK &&
-			binary.b.kind == OPERAND_STACK {
+			(binary.op == AsmOpAdd || binary.op == AsmOpSub) &&
+			binary.a.kind == OperandStack &&
+			binary.b.kind == OperandStack {
 
 			// addl -4(%rbp), -8(%rbp)
 			// ->
 			// movl -4(%rbp), %r10d
 			// addl %r10d, -8(%rbp)
 
-			moveToR10 := newMov(binary.a, Operand{kind: OPERAND_REG_R10})
+			moveToR10 := newMov(binary.a, Operand{kind: OperandRegR10})
 			addl := Instruction{
 				data: &BinaryInstruction{
 					op: binary.op,
-					a:  Operand{kind: OPERAND_REG_R10},
+					a:  Operand{kind: OperandRegR10},
 					b:  binary.b,
 				},
 			}
 			fixedInstructions = append(fixedInstructions, moveToR10, addl)
 		} else if binary, ok := inst.data.(*BinaryInstruction); ok &&
-			binary.op == A_O_MUL &&
-			binary.b.kind == OPERAND_STACK {
+			binary.op == AsmOpMul &&
+			binary.b.kind == OperandStack {
 
 			// imull $3, -4(%rbp)
 			// ->
 			// movl -4(%rbp), %r11d
 			// imull $3, %r11d
 			// movl %r11d, -4(%rbp)
-			moveToR11 := newMov(binary.b, Operand{kind: OPERAND_REG_R11})
+			moveToR11 := newMov(binary.b, Operand{kind: OperandRegR11})
 			imull := Instruction{
 				data: &BinaryInstruction{
-					op: A_O_MUL,
+					op: AsmOpMul,
 					a:  binary.a,
-					b:  Operand{kind: OPERAND_REG_R11},
+					b:  Operand{kind: OperandRegR11},
 				},
 			}
 
-			movToStack := newMov(Operand{kind: OPERAND_REG_R11}, binary.b)
+			movToStack := newMov(Operand{kind: OperandRegR11}, binary.b)
 			fixedInstructions = append(fixedInstructions, moveToR11, imull, movToStack)
 		} else if cmp, ok := inst.data.(*Cmp); ok &&
-			cmp.a.kind == OPERAND_STACK && cmp.b.kind == OPERAND_STACK {
+			cmp.a.kind == OperandStack && cmp.b.kind == OperandStack {
 			// both operands cannot be stack addresses therefore we need to fix it
 			// for example:
 			// cmpl -4(%rbp), -8(%rbp)
@@ -525,22 +530,22 @@ func (ib *InstructionBuilder) fixInstructions() {
 			// movl -4(%rbp), %r10d
 			// cmpl %r10d, -8(%rbp)
 
-			moveToR10 := newMov(cmp.a, Operand{kind: OPERAND_REG_R10})
+			moveToR10 := newMov(cmp.a, Operand{kind: OperandRegR10})
 			cmpl := Instruction{
 				data: &Cmp{
-					a: Operand{kind: OPERAND_REG_R10},
+					a: Operand{kind: OperandRegR10},
 					b: cmp.b,
 				},
 			}
 
 			fixedInstructions = append(fixedInstructions, moveToR10, cmpl)
-		} else if cmp, ok := inst.data.(*Cmp); ok && cmp.b.kind == OPERAND_IMM {
+		} else if cmp, ok := inst.data.(*Cmp); ok && cmp.b.kind == OperandImm {
 
-			moveConstant := newMov(cmp.b, Operand{kind: OPERAND_REG_R11})
+			moveConstant := newMov(cmp.b, Operand{kind: OperandRegR11})
 			cmpl := Instruction{
 				data: &Cmp{
 					a: cmp.a,
-					b: Operand{kind: OPERAND_REG_R11},
+					b: Operand{kind: OperandRegR11},
 				},
 			}
 
@@ -555,12 +560,12 @@ func (ib *InstructionBuilder) fixInstructions() {
 
 func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
 	argRegisters := []Operand{
-		{kind: OPERAND_REG_DI},
-		{kind: OPERAND_REG_SI},
-		{kind: OPERAND_REG_DX},
-		{kind: OPERAND_REG_CX},
-		{kind: OPERAND_REG_R8},
-		{kind: OPERAND_REG_R9},
+		{kind: OperandRegDI},
+		{kind: OperandRegSI},
+		{kind: OperandRegDX},
+		{kind: OperandRegCX},
+		{kind: OperandRegR8},
+		{kind: OperandRegR9},
 	}
 
 	var registerArgs []*IrVal
@@ -596,7 +601,7 @@ func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
 
 	for idx := len(stackArgs) - 1; idx >= 0; idx-- {
 		assemblyArg := toOperand(stackArgs[idx])
-		if assemblyArg.isRegister() || assemblyArg.kind == OPERAND_IMM {
+		if assemblyArg.isRegister() || assemblyArg.kind == OperandImm {
 			ib.emit(Instruction{
 				data: &Push{
 					op: assemblyArg,
@@ -606,11 +611,11 @@ func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
 			ib.emit(Instruction{
 				data: &Mov{
 					a: assemblyArg,
-					b: Operand{kind: OPERAND_REG_AX},
+					b: Operand{kind: OperandRegAX},
 				},
 			}, Instruction{
 				data: &Push{
-					op: Operand{kind: OPERAND_REG_AX},
+					op: Operand{kind: OperandRegAX},
 				},
 			})
 		}
@@ -636,7 +641,7 @@ func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
 	assemblyDst := toOperand(irfn.dst)
 	ib.emit(Instruction{
 		data: &Mov{
-			a: Operand{kind: OPERAND_REG_AX},
+			a: Operand{kind: OperandRegAX},
 			b: assemblyDst,
 		},
 	})
@@ -645,20 +650,20 @@ func (ib *InstructionBuilder) emitFunctionCall(irfn *IrFuncCall) {
 func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 	switch in := ins.data.(type) {
 	case *IrReturnInstruction:
-		ib.emit(newMov(toOperand(in.val), Operand{kind: OPERAND_REG_AX}), Instruction{data: &Ret{}})
+		ib.emit(newMov(toOperand(in.val), Operand{kind: OperandRegAX}), Instruction{data: &Ret{}})
 	case *IrFuncCall:
 		ib.emitFunctionCall(in)
 	case *IrUnaryInstruction:
-		if in.operator == IR_UNARY_NOT {
+		if in.operator == IrOpUnaryNot {
 			ib.emit(Instruction{
 				data: &Cmp{
-					a: Operand{kind: OPERAND_IMM, imm: 0},
+					a: Operand{kind: OperandImm, imm: 0},
 					b: toOperand(in.src),
 				},
-			}, newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(in.dst)),
+			}, newMov(Operand{kind: OperandImm, imm: 0}, toOperand(in.dst)),
 				Instruction{
 					data: &SetCC{
-						condCode: COND_E,
+						condCode: CondCodeE,
 						a:        toOperand(in.dst),
 					},
 				})
@@ -671,25 +676,25 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 			})
 		}
 	case *IrBinaryInstruction:
-		if in.operator == IR_BIN_DIV {
-			ib.emit(newMov(toOperand(in.src1), Operand{kind: OPERAND_REG_AX}),
+		if in.operator == IrOpBinDiv {
+			ib.emit(newMov(toOperand(in.src1), Operand{kind: OperandRegAX}),
 				Instruction{data: &Cdq{}},
 				Instruction{
 					data: &Idivl{
 						op: toOperand(in.src2),
 					},
 				},
-				newMov(Operand{kind: OPERAND_REG_AX}, toOperand(in.dst)),
+				newMov(Operand{kind: OperandRegAX}, toOperand(in.dst)),
 			)
-		} else if in.operator == IR_BIN_REMAINDER {
-			ib.emit(newMov(toOperand(in.src1), Operand{kind: OPERAND_REG_AX}),
+		} else if in.operator == IrOpBinRemainder {
+			ib.emit(newMov(toOperand(in.src1), Operand{kind: OperandRegAX}),
 				Instruction{data: &Cdq{}},
 				Instruction{
 					data: &Idivl{
 						op: toOperand(in.src2),
 					},
 				},
-				newMov(Operand{kind: OPERAND_REG_DX}, toOperand(in.dst)),
+				newMov(Operand{kind: OperandRegDX}, toOperand(in.dst)),
 			)
 		} else if condCode, ok := relToCondCode[in.operator]; ok {
 			ib.emit(Instruction{
@@ -698,7 +703,7 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 					b: toOperand(in.src1),
 				},
 			},
-				newMov(Operand{kind: OPERAND_IMM, imm: 0}, toOperand(in.dst)),
+				newMov(Operand{kind: OperandImm, imm: 0}, toOperand(in.dst)),
 				Instruction{
 					data: &SetCC{
 						condCode: condCode,
@@ -720,24 +725,24 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 	case *IrJumpIfZero:
 		ib.emit(Instruction{
 			data: &Cmp{
-				a: Operand{kind: OPERAND_IMM, imm: 0},
+				a: Operand{kind: OperandImm, imm: 0},
 				b: toOperand(in.condition),
 			},
 		}, Instruction{
 			data: &JmpCC{
-				condCode:   COND_E,
+				condCode:   CondCodeE,
 				identifier: in.target,
 			},
 		})
 	case *IrJumpIfNotZero:
 		ib.emit(Instruction{
 			data: &Cmp{
-				a: Operand{kind: OPERAND_IMM, imm: 0},
+				a: Operand{kind: OperandImm, imm: 0},
 				b: toOperand(in.condition),
 			},
 		}, Instruction{
 			data: &JmpCC{
-				condCode:   COND_NE,
+				condCode:   CondCodeNE,
 				identifier: in.target,
 			},
 		})
@@ -750,26 +755,26 @@ func (ib *InstructionBuilder) emitIrInst(ins *IrInstruction) {
 
 func (ib *InstructionBuilder) emitParameterSetup(params []string) {
 	argRegisters := []OperandKind{
-		OPERAND_REG_DI,
-		OPERAND_REG_SI,
-		OPERAND_REG_DX,
-		OPERAND_REG_CX,
-		OPERAND_REG_R8,
-		OPERAND_REG_R9,
+		OperandRegDI,
+		OperandRegSI,
+		OperandRegDX,
+		OperandRegCX,
+		OperandRegR8,
+		OperandRegR9,
 	}
 
 	for index, param := range params {
 		if index < 6 {
 			// Move from argument register to pseudoregister
 			src := Operand{kind: argRegisters[index]}
-			dst := Operand{kind: OPERAND_PSEUDO, ident: param}
+			dst := Operand{kind: OperandPseudo, ident: param}
 			ib.emit(newMov(src, dst))
 		} else {
 			// Move from caller's stack frame to pseudoregister
 			// 7th parameter is at 16(%rbp), 8th at 24(%rbp), etc.
 			stackOffset := int64((index - 4) * 8)
-			src := Operand{kind: OPERAND_STACK, imm: stackOffset}
-			dst := Operand{kind: OPERAND_PSEUDO, ident: param}
+			src := Operand{kind: OperandStack, imm: stackOffset}
+			dst := Operand{kind: OperandPseudo, ident: param}
 			ib.emit(newMov(src, dst))
 		}
 	}

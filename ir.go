@@ -5,54 +5,54 @@ import "fmt"
 type IrOperator int
 
 const (
-	IR_UNARY_COMPLEMENT IrOperator = iota
-	IR_UNARY_NEGATE
-	IR_BIN_ADD
-	IR_BIN_SUB
-	IR_BIN_MUL
-	IR_BIN_DIV
-	IR_BIN_REMAINDER
-	IR_UNARY_NOT
-	IR_BIN_GT
-	IR_BIN_LT
-	IR_BIN_GTEQ
-	IR_BIN_LTEQ
-	IR_BIN_NEQ
-	IR_BIN_EQ
+	IrOpUnaryComplement IrOperator = iota
+	IrOpUnaryNegate
+	IrOpBinAdd
+	IrOpBinSub
+	IrOpBinMul
+	IrOpBinDiv
+	IrOpBinRemainder
+	IrOpUnaryNot
+	IrOpBinGT
+	IrOpBinLT
+	IrOpBinGTEQ
+	IrOpBinLTEQ
+	IrOpBinNeq
+	IrOpBinEQ
 )
 
 type IrValueKind int
 
 const (
-	IR_VAL_CONSTANT IrValueKind = iota
-	IR_VAL_VAR
+	IrValConstant IrValueKind = iota
+	IrValVar
 )
 
 type IrVal struct {
 	kind       IrValueKind
-	constant   int64  // if IR_VAL_CONSTANT
-	identifier string // if IR_VAL_VAR
+	constant   int64  // if IrValConstant
+	identifier string // if IrValVar
 }
 
 func NewIrConstant(value int64) *IrVal {
 	return &IrVal{
-		kind:     IR_VAL_CONSTANT,
+		kind:     IrValConstant,
 		constant: value,
 	}
 }
 
 func NewIrVar(id string) *IrVal {
 	return &IrVal{
-		kind:       IR_VAL_VAR,
+		kind:       IrValVar,
 		identifier: id,
 	}
 }
 
 func (v *IrVal) String() string {
 	switch v.kind {
-	case IR_VAL_CONSTANT:
+	case IrValConstant:
 		return fmt.Sprintf("%d", v.constant)
-	case IR_VAL_VAR:
+	case IrValVar:
 		return v.identifier
 	default:
 		return "unknown"
@@ -60,11 +60,11 @@ func (v *IrVal) String() string {
 }
 
 func (v *IrVal) IsVar() bool {
-	return v.kind == IR_VAL_VAR
+	return v.kind == IrValVar
 }
 
 func (v *IrVal) IsConstant() bool {
-	return v.kind == IR_VAL_CONSTANT
+	return v.kind == IrValConstant
 }
 
 type IrReturnInstruction struct {
@@ -345,11 +345,11 @@ func (g *IrGenerator) generateUnary(unaryExpr *UnaryExpr, instructions *[]*IrIns
 	var irOp IrOperator
 	switch unaryExpr.operator {
 	case MINUS:
-		irOp = IR_UNARY_NEGATE
+		irOp = IrOpUnaryNegate
 	case TILDE:
-		irOp = IR_UNARY_COMPLEMENT
+		irOp = IrOpUnaryComplement
 	case TOK_BANG:
-		irOp = IR_UNARY_NOT
+		irOp = IrOpUnaryNot
 	default:
 		panic("unsupported unary operator")
 	}
@@ -406,7 +406,10 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 	return resultVar
 }
 
-func (g *IrGenerator) generateConditionalExpr(expr *CondExpr, instructions *[]*IrInstruction) *IrVal {
+func (g *IrGenerator) generateConditionalExpr(
+	expr *CondExpr,
+	instructions *[]*IrInstruction,
+) *IrVal {
 	cond := g.generateExpression(expr.left, instructions)
 	e2Label := g.newLabel()
 	endLabel := g.newLabel()
@@ -438,27 +441,27 @@ func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrIn
 	var irOp IrOperator
 	switch expr.operator {
 	case MINUS:
-		irOp = IR_BIN_SUB
+		irOp = IrOpBinSub
 	case TOK_ASTERISK:
-		irOp = IR_BIN_MUL
+		irOp = IrOpBinMul
 	case TOK_PLUS:
-		irOp = IR_BIN_ADD
+		irOp = IrOpBinAdd
 	case TOK_SLASH:
-		irOp = IR_BIN_DIV
+		irOp = IrOpBinDiv
 	case TOK_PERCENT:
-		irOp = IR_BIN_REMAINDER
+		irOp = IrOpBinRemainder
 	case TOK_GT:
-		irOp = IR_BIN_GT
+		irOp = IrOpBinGT
 	case TOK_LT:
-		irOp = IR_BIN_LT
+		irOp = IrOpBinLT
 	case TOK_GTEQ:
-		irOp = IR_BIN_GTEQ
+		irOp = IrOpBinGTEQ
 	case TOK_LTEQ:
-		irOp = IR_BIN_LTEQ
+		irOp = IrOpBinLTEQ
 	case TOK_EQ:
-		irOp = IR_BIN_EQ
+		irOp = IrOpBinEQ
 	case TOK_NEQ:
-		irOp = IR_BIN_NEQ
+		irOp = IrOpBinNeq
 	default:
 		panic("unsupported binary operator")
 	}
