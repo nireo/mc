@@ -17,43 +17,43 @@ type TokenValue struct {
 }
 
 const (
-	TOK_IDENT Token = iota
-	TOK_CONSTANT
-	INT_KEYWORD
-	VOID_KEYWORD
-	RETURN_KEYWORD
-	OPEN_PAREN // 5
-	CLOSE_PAREN
-	OPEN_BRACE
-	CLOSE_BRACE
-	SEMICOLON // 9
-	TILDE
-	MINUS
-	DECREMENT
-	TOK_PLUS
-	TOK_ASTERISK
-	TOK_SLASH
-	TOK_PERCENT
-	TOK_AND
-	TOK_OR
-	TOK_BANG
-	TOK_EQ
-	TOK_NEQ
-	TOK_LT
-	TOK_GT
-	TOK_LTEQ
-	TOK_GTEQ
-	TOK_ASSIGN
-	TOK_IF
-	TOK_ELSE
-	TOK_QUESTION
-	TOK_COLON
-	TOK_DO
-	TOK_WHILE
-	TOK_FOR
-	TOK_BREAK
-	TOK_CONTINUE
-	TOK_COMMA
+	TokIdent Token = iota
+	TokConstant
+	TokInt
+	TokVoid
+	TokReturn
+	TokOpenParen // 5
+	TokCloseParen
+	TokOpenBrace
+	TokCloseBrace
+	TokSemicolon // 9
+	TokTilde
+	TokMinus
+	TokDecrement
+	TokPlus
+	TokAsterisk
+	TokSlash
+	TokPercent
+	TokAnd
+	TokOr
+	TokBang
+	TokEq
+	TokNeq
+	TokLT
+	TokGT
+	TokLTEQ
+	TokGTEQ
+	TokAssign
+	TokIf
+	TokElse
+	TokQuestion
+	TokColon
+	TokDo
+	TokWhile
+	TokFor
+	TokBreak
+	TokContinue
+	TokComma
 )
 
 // Pattern represents a regex pattern and its token constructor
@@ -66,156 +66,156 @@ func createRegexPatterns() []Pattern {
 	return []Pattern{
 		{
 			regex:     regexp.MustCompile(`^int\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{INT_KEYWORD, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokInt, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^void\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{VOID_KEYWORD, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokVoid, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^do\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_DO, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokDo, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^while\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_WHILE, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokWhile, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^continue\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_CONTINUE, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokContinue, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^break\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_BREAK, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokBreak, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^for\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_FOR, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokFor, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^return\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{RETURN_KEYWORD, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokReturn, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^if\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_IF, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokIf, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^else\b`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_ELSE, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokElse, nil} },
 		},
 		{
 			regex: regexp.MustCompile(`^[0-9]+\b`),
 			tokenFunc: func(s string) TokenValue {
 				num, _ := strconv.ParseInt(s, 10, 64)
-				return TokenValue{TOK_CONSTANT, num}
+				return TokenValue{TokConstant, num}
 			},
 		},
 		{
 			regex: regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*\b`),
 			tokenFunc: func(s string) TokenValue {
-				return TokenValue{TOK_IDENT, s}
+				return TokenValue{TokIdent, s}
 			},
 		},
 		{
 			regex:     regexp.MustCompile(`^==`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_EQ, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokEq, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^!=`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_NEQ, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokNeq, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^<=`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_LTEQ, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokLTEQ, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^>=`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_GTEQ, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokGTEQ, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^--`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{DECREMENT, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokDecrement, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\(`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{OPEN_PAREN, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokOpenParen, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\)`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{CLOSE_PAREN, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokCloseParen, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\{`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{OPEN_BRACE, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokOpenBrace, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\}`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{CLOSE_BRACE, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokCloseBrace, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^<`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_LT, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokLT, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^>`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_GT, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokGT, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\?`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_QUESTION, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokQuestion, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^:`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_COLON, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokColon, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^&&`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_AND, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokAnd, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^=`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_ASSIGN, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokAssign, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\|\|`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_OR, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokOr, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^!`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_BANG, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokBang, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\-`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{MINUS, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokMinus, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\%`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_PERCENT, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokPercent, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\+`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_PLUS, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokPlus, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\/`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_SLASH, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokSlash, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\*`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_ASTERISK, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokAsterisk, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^\~`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TILDE, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokTilde, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^;`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{SEMICOLON, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokSemicolon, nil} },
 		},
 		{
 			regex:     regexp.MustCompile(`^,`),
-			tokenFunc: func(s string) TokenValue { return TokenValue{TOK_COMMA, nil} },
+			tokenFunc: func(s string) TokenValue { return TokenValue{TokComma, nil} },
 		},
 	}
 }

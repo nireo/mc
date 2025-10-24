@@ -3,8 +3,8 @@ package mc
 type TypeKind int
 
 const (
-	TY_INT TypeKind = iota
-	TY_FUNC
+	TypeInt TypeKind = iota
+	TypeFunc
 )
 
 type FuncType struct {
@@ -43,7 +43,7 @@ func checkFuncDeclTypes(fndef *FunctionDef, symbols map[string]Symbol) {
 
 	alreadyDefined := false
 	if old, ok := symbols[fndef.identifier]; ok {
-		if old.ty.kind != TY_FUNC {
+		if old.ty.kind != TypeFunc {
 			panic("incompatible function declarations")
 		}
 
@@ -55,7 +55,7 @@ func checkFuncDeclTypes(fndef *FunctionDef, symbols map[string]Symbol) {
 
 	symbols[fndef.identifier] = Symbol{
 		ty: Type{
-			kind:  TY_FUNC,
+			kind:  TypeFunc,
 			extra: fnType,
 		},
 		defined:   alreadyDefined || hasBody,
@@ -66,7 +66,7 @@ func checkFuncDeclTypes(fndef *FunctionDef, symbols map[string]Symbol) {
 	if hasBody {
 		for _, p := range fndef.params {
 			symbols[p] = Symbol{
-				ty: newType(TY_INT),
+				ty: newType(TypeInt),
 			}
 		}
 		checkBlockTypes(fndef.body, symbols)
@@ -118,7 +118,7 @@ func checkExprTypes(expr *Expression, symbols map[string]Symbol) {
 	switch e := expr.data.(type) {
 	case *FunctionCall:
 		ftype := symbols[e.ident].ty
-		if ftype.kind == TY_INT {
+		if ftype.kind == TypeInt {
 			panic("variable used as function name")
 		}
 
@@ -131,7 +131,7 @@ func checkExprTypes(expr *Expression, symbols map[string]Symbol) {
 			checkExprTypes(arg, symbols)
 		}
 	case string:
-		if s, ok := symbols[e]; ok && s.ty.kind != TY_INT {
+		if s, ok := symbols[e]; ok && s.ty.kind != TypeInt {
 			panic("function name used as a variable")
 		}
 	case *AssignExpr:
@@ -157,7 +157,7 @@ func checkDeclTypes(decl *Declaration, symbols map[string]Symbol) {
 
 func checkVariableDeclTypes(decl *VarDecl, symbols map[string]Symbol) {
 	symbols[decl.identifier] = Symbol{
-		ty: newType(TY_INT),
+		ty: newType(TypeInt),
 	}
 
 	if decl.init != nil {
