@@ -344,11 +344,11 @@ func (g *IrGenerator) generateUnary(unaryExpr *UnaryExpr, instructions *[]*IrIns
 
 	var irOp IrOperator
 	switch unaryExpr.operator {
-	case MINUS:
+	case TokMinus:
 		irOp = IrOpUnaryNegate
-	case TILDE:
+	case TokTilde:
 		irOp = IrOpUnaryComplement
-	case TOK_BANG:
+	case TokBang:
 		irOp = IrOpUnaryNot
 	default:
 		panic("unsupported unary operator")
@@ -366,7 +366,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 	endLabel := g.newLabel()
 	resultVar := g.newTempVar()
 
-	if binExpr.operator == TOK_AND {
+	if binExpr.operator == TokAnd {
 		v1 := g.generateExpression(binExpr.lhs, instructions)
 		g.jumpIfZero(falseLabel, v1, instructions)
 
@@ -379,7 +379,7 @@ func (g *IrGenerator) generateLogicalBinaryExpr(
 		g.addLabel(falseLabel, instructions)
 		g.addCopy(NewIrConstant(0), resultVar, instructions)
 		g.addLabel(endLabel, instructions)
-	} else if binExpr.operator == TOK_OR {
+	} else if binExpr.operator == TokOr {
 		trueLabel := g.newLabel()
 		v1 := g.generateExpression(binExpr.lhs, instructions)
 
@@ -430,7 +430,7 @@ func (g *IrGenerator) generateConditionalExpr(
 }
 
 func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrInstruction) *IrVal {
-	if expr.operator == TOK_AND || expr.operator == TOK_OR {
+	if expr.operator == TokAnd || expr.operator == TokOr {
 		return g.generateLogicalBinaryExpr(expr, instructions)
 	}
 
@@ -440,27 +440,27 @@ func (g *IrGenerator) generateBinaryExpr(expr *BinaryExpr, instructions *[]*IrIn
 	dst := g.newTempVar()
 	var irOp IrOperator
 	switch expr.operator {
-	case MINUS:
+	case TokMinus:
 		irOp = IrOpBinSub
-	case TOK_ASTERISK:
+	case TokAsterisk:
 		irOp = IrOpBinMul
-	case TOK_PLUS:
+	case TokPlus:
 		irOp = IrOpBinAdd
-	case TOK_SLASH:
+	case TokSlash:
 		irOp = IrOpBinDiv
-	case TOK_PERCENT:
+	case TokPercent:
 		irOp = IrOpBinRemainder
-	case TOK_GT:
+	case TokGT:
 		irOp = IrOpBinGT
-	case TOK_LT:
+	case TokLT:
 		irOp = IrOpBinLT
-	case TOK_GTEQ:
+	case TokGTEQ:
 		irOp = IrOpBinGTEQ
-	case TOK_LTEQ:
+	case TokLTEQ:
 		irOp = IrOpBinLTEQ
-	case TOK_EQ:
+	case TokEq:
 		irOp = IrOpBinEQ
-	case TOK_NEQ:
+	case TokNeq:
 		irOp = IrOpBinNeq
 	default:
 		panic("unsupported binary operator")

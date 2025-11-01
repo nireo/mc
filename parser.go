@@ -37,21 +37,21 @@ type Expression struct {
 }
 
 var precedences = map[Token]int{
-	TOK_ASTERISK: 50,
-	TOK_SLASH:    50,
-	TOK_PERCENT:  50,
-	TOK_PLUS:     45,
-	MINUS:        45,
-	TOK_GT:       35,
-	TOK_LT:       35,
-	TOK_GTEQ:     35,
-	TOK_LTEQ:     35,
-	TOK_EQ:       30,
-	TOK_NEQ:      30,
-	TOK_AND:      10,
-	TOK_OR:       5,
-	TOK_QUESTION: 3,
-	TOK_ASSIGN:   1,
+	TokAsterisk: 50,
+	TokSlash:    50,
+	TokPercent:  50,
+	TokPlus:     45,
+	TokMinus:    45,
+	TokGT:       35,
+	TokLT:       35,
+	TokGTEQ:     35,
+	TokLTEQ:     35,
+	TokEq:       30,
+	TokNeq:      30,
+	TokAnd:      10,
+	TokOr:       5,
+	TokQuestion: 3,
+	TokAssign:   1,
 }
 
 type ReturnStatement struct {
@@ -142,20 +142,26 @@ func NewParser(tokens []TokenValue) *Parser {
 
 func (p *Parser) expect(expectedToken Token) {
 	if p.curr().Kind != expectedToken {
-		panic(fmt.Sprintf("expected another token %d but got wrong token %d", expectedToken, p.curr().Kind))
+		panic(
+			fmt.Sprintf(
+				"expected another token %d but got wrong token %d",
+				expectedToken,
+				p.curr().Kind,
+			),
+		)
 	}
 	p.idx += 1
 }
 
 func (p *Parser) parseIfStatement() *Statement {
-	p.expect(TOK_IF)
-	p.expect(OPEN_PAREN)
+	p.expect(TokIf)
+	p.expect(TokOpenParen)
 	cond := p.parseExpr(0)
-	p.expect(CLOSE_PAREN)
+	p.expect(TokCloseParen)
 	then := p.parseStatement()
 
 	var otherwise *Statement
-	if p.tokens[p.idx].Kind == TOK_ELSE {
+	if p.tokens[p.idx].Kind == TokElse {
 		p.idx += 1
 		otherwise = p.parseStatement()
 	}
@@ -171,22 +177,22 @@ func (p *Parser) parseIfStatement() *Statement {
 
 func (p *Parser) parseStatement() *Statement {
 	switch p.tokens[p.idx].Kind {
-	case RETURN_KEYWORD:
-		p.expect(RETURN_KEYWORD)
+	case TokReturn:
+		p.expect(TokReturn)
 		expr := p.parseExpr(0)
-		p.expect(SEMICOLON)
+		p.expect(TokSemicolon)
 
 		return &Statement{
 			data: &ReturnStatement{
 				expr: expr,
 			},
 		}
-	case TOK_IF:
+	case TokIf:
 		return p.parseIfStatement()
-	case SEMICOLON:
+	case TokSemicolon:
 		p.idx += 1
 		return &Statement{data: nil}
-	case OPEN_BRACE:
+	case TokOpenBrace:
 		p.idx += 1
 		block := p.parseBlock()
 
@@ -195,27 +201,27 @@ func (p *Parser) parseStatement() *Statement {
 				block: block,
 			},
 		}
-	case TOK_BREAK:
+	case TokBreak:
 		p.idx += 1
-		p.expect(SEMICOLON)
+		p.expect(TokSemicolon)
 		return &Statement{
 			data: &Break{},
 		}
-	case TOK_CONTINUE:
+	case TokContinue:
 		p.idx += 1
-		p.expect(SEMICOLON)
+		p.expect(TokSemicolon)
 		return &Statement{
 			data: &Continue{},
 		}
-	case TOK_DO:
+	case TokDo:
 		p.idx += 1
 		stmt := p.parseStatement()
-		p.expect(TOK_WHILE)
-		p.expect(OPEN_PAREN)
+		p.expect(TokWhile)
+		p.expect(TokOpenParen)
 
 		cond := p.parseExpr(0)
-		p.expect(CLOSE_PAREN)
-		p.expect(SEMICOLON)
+		p.expect(TokCloseParen)
+		p.expect(TokSemicolon)
 
 		return &Statement{
 			data: &DoWhileStatement{
@@ -223,11 +229,11 @@ func (p *Parser) parseStatement() *Statement {
 				body: stmt,
 			},
 		}
-	case TOK_WHILE:
+	case TokWhile:
 		p.idx += 1
-		p.expect(OPEN_PAREN)
+		p.expect(TokOpenParen)
 		cond := p.parseExpr(0)
-		p.expect(CLOSE_PAREN)
+		p.expect(TokCloseParen)
 
 		body := p.parseStatement()
 		return &Statement{
@@ -236,12 +242,12 @@ func (p *Parser) parseStatement() *Statement {
 				body: body,
 			},
 		}
-	case TOK_FOR:
+	case TokFor:
 		return p.parseForStatement()
 	}
 
 	expr := p.parseExpr(0)
-	p.expect(SEMICOLON)
+	p.expect(TokSemicolon)
 	return &Statement{
 		data: expr,
 	}
@@ -251,9 +257,9 @@ func (p *Parser) parseExprList() []*Expression {
 	exprs := make([]*Expression, 0)
 	first := true
 
-	for p.tokens[p.idx].Kind == TOK_COMMA || first {
+	for p.tokens[p.idx].Kind == TokComma || first {
 		p.idx += 1
-		if p.curr().Kind == CLOSE_PAREN {
+		if p.curr().Kind == TokCloseParen {
 			break
 		}
 		expr := p.parseExpr(0)
@@ -261,7 +267,7 @@ func (p *Parser) parseExprList() []*Expression {
 		first = false
 	}
 
-	p.expect(CLOSE_PAREN)
+	p.expect(TokCloseParen)
 
 	return exprs
 }
@@ -271,9 +277,9 @@ func (p *Parser) parseFactor() *Expression {
 	p.idx += 1
 
 	switch tok.Kind {
-	case TOK_IDENT:
+	case TokIdent:
 		ident := tok.Value.(string)
-		if p.curr().Kind == OPEN_PAREN {
+		if p.curr().Kind == TokOpenParen {
 			args := p.parseExprList()
 			return &Expression{
 				data: &FunctionCall{
@@ -286,11 +292,11 @@ func (p *Parser) parseFactor() *Expression {
 		return &Expression{
 			data: tok.Value.(string),
 		}
-	case TOK_CONSTANT:
+	case TokConstant:
 		return &Expression{
 			data: tok.Value.(int64),
 		}
-	case TILDE, MINUS, TOK_BANG:
+	case TokTilde, TokMinus, TokBang:
 		op := tok.Kind
 		innerExpr := p.parseFactor()
 		return &Expression{
@@ -299,21 +305,20 @@ func (p *Parser) parseFactor() *Expression {
 				expr:     innerExpr,
 			},
 		}
-	case OPEN_PAREN:
+	case TokOpenParen:
 		innerExpr := p.parseExpr(0)
-		p.expect(CLOSE_PAREN)
+		p.expect(TokCloseParen)
 
 		return innerExpr
 	}
 
 	panic(fmt.Sprintf("no implementation for expression %d", tok.Kind))
-
 }
 
 func (p *Parser) parseConditionalMiddle() *Expression {
-	p.expect(TOK_QUESTION)
+	p.expect(TokQuestion)
 	expr := p.parseExpr(0)
-	p.expect(TOK_COLON)
+	p.expect(TokColon)
 
 	return expr
 }
@@ -332,7 +337,7 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 			break
 		}
 
-		if next == TOK_ASSIGN {
+		if next == TokAssign {
 			p.idx++ // skip the assign symbol
 			right := p.parseExpr(pred)
 			left = &Expression{
@@ -341,7 +346,7 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 					avalue: right,
 				},
 			}
-		} else if next == TOK_QUESTION {
+		} else if next == TokQuestion {
 			middle := p.parseConditionalMiddle()
 			right := p.parseExpr(pred)
 			left = &Expression{
@@ -369,22 +374,22 @@ func (p *Parser) parseExpr(minPrec int) *Expression {
 }
 
 func (p *Parser) parseDecl(parseVar bool) *Declaration {
-	p.expect(INT_KEYWORD)
+	p.expect(TokInt)
 	ident := p.tokens[p.idx].Value.(string)
 	p.idx += 1
 	var expr *Expression
 
 	c := p.curr()
-	if c.Kind == TOK_ASSIGN {
+	if c.Kind == TokAssign {
 		p.next()
 		expr = p.parseExpr(0)
-		p.expect(SEMICOLON)
-	} else if c.Kind == OPEN_PAREN {
+		p.expect(TokSemicolon)
+	} else if c.Kind == TokOpenParen {
 		p.next()
 		args := p.parseParamList()
 		c := p.curr()
 		var body *Block
-		if c.Kind == OPEN_BRACE {
+		if c.Kind == TokOpenBrace {
 			p.idx += 1
 
 			if parseVar {
@@ -392,7 +397,7 @@ func (p *Parser) parseDecl(parseVar bool) *Declaration {
 			}
 			body = p.parseBlock()
 
-		} else if c.Kind == SEMICOLON {
+		} else if c.Kind == TokSemicolon {
 			p.idx += 1
 		} else {
 			panic("unexpected token after function")
@@ -406,7 +411,7 @@ func (p *Parser) parseDecl(parseVar bool) *Declaration {
 			},
 		}
 	} else {
-		p.expect(SEMICOLON)
+		p.expect(TokSemicolon)
 	}
 
 	if !parseVar {
@@ -422,39 +427,39 @@ func (p *Parser) parseDecl(parseVar bool) *Declaration {
 }
 
 func (p *Parser) parseForStatement() *Statement {
-	p.expect(TOK_FOR)
-	p.expect(OPEN_PAREN)
+	p.expect(TokFor)
+	p.expect(TokOpenParen)
 
 	var init any
 	isDecl := false
 	switch p.tokens[p.idx].Kind {
-	case INT_KEYWORD:
+	case TokInt:
 		init = p.parseDecl(true)
 		isDecl = true
-	case SEMICOLON:
+	case TokSemicolon:
 		init = nil
 	default:
 		init = p.parseExpr(0)
 	}
 
 	if !isDecl {
-		p.expect(SEMICOLON)
+		p.expect(TokSemicolon)
 	}
 
 	var cond *Expression = nil
-	if p.tokens[p.idx].Kind == SEMICOLON {
+	if p.tokens[p.idx].Kind == TokSemicolon {
 		p.idx += 1
 	} else {
 		cond = p.parseExpr(0)
-		p.expect(SEMICOLON)
+		p.expect(TokSemicolon)
 	}
 
 	var post *Expression = nil
-	if p.tokens[p.idx].Kind == CLOSE_PAREN {
+	if p.tokens[p.idx].Kind == TokCloseParen {
 		p.idx += 1
 	} else {
 		cond = p.parseExpr(0)
-		p.expect(CLOSE_PAREN)
+		p.expect(TokCloseParen)
 	}
 
 	body := p.parseStatement()
@@ -473,16 +478,16 @@ func (p *Parser) parseBlock() *Block {
 	body := make([]BlockItem, 0)
 	for {
 		currTok := p.tokens[p.idx].Kind
-		if currTok == CLOSE_BRACE {
+		if currTok == TokCloseBrace {
 			break
 		}
 
-		if currTok == INT_KEYWORD {
+		if currTok == TokInt {
 			decl := p.parseDecl(true)
 			body = append(body, BlockItem{
 				data: decl,
 			})
-		} else if currTok == OPEN_BRACE {
+		} else if currTok == TokOpenBrace {
 			p.idx += 1
 			block := p.parseBlock()
 			body = append(body, BlockItem{
@@ -499,7 +504,7 @@ func (p *Parser) parseBlock() *Block {
 			})
 		}
 	}
-	p.expect(CLOSE_BRACE)
+	p.expect(TokCloseBrace)
 
 	return &Block{
 		items: body,
@@ -518,32 +523,32 @@ func (p *Parser) parseParamList() []string {
 	args := []string{}
 	tok := p.tokens[p.idx]
 	switch tok.Kind {
-	case VOID_KEYWORD:
+	case TokVoid:
 		p.idx += 1
-	case INT_KEYWORD:
+	case TokInt:
 		p.idx += 1
 		identifier := p.tokens[p.idx].Value.(string)
 		p.idx += 1
 
 		args = append(args, identifier)
 
-		for p.tokens[p.idx].Kind == TOK_COMMA {
+		for p.tokens[p.idx].Kind == TokComma {
 			p.idx += 1
-			p.expect(INT_KEYWORD)
+			p.expect(TokInt)
 			i := p.tokens[p.idx].Value.(string)
 			args = append(args, i)
 			p.idx += 1
 		}
 	}
 
-	p.expect(CLOSE_PAREN)
+	p.expect(TokCloseParen)
 
 	return args
 }
 
 func (p *Parser) Parse() *Program {
 	var funcs []*FunctionDef
-	for p.idx < len(p.tokens) && p.curr().Kind == INT_KEYWORD {
+	for p.idx < len(p.tokens) && p.curr().Kind == TokInt {
 		decl := p.parseDecl(false)
 		if fnDef, ok := decl.data.(*FunctionDef); ok {
 			funcs = append(funcs, fnDef)
